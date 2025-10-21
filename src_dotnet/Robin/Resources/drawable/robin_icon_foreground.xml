@@ -1,0 +1,12 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Large letter 'R' centered -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M35,30 L45,30 L45,35 L35,35 ZM35,35 L35,78 L45,78 L45,35 ZM45,30 L58,30 C63,30 68,35 68,42 C68,49 63,54 58,54 L45,54 ZM45,54 L58,54 L68,78 L58,78 L45,54 Z"/>
+
+</vector>

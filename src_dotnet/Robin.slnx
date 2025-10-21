@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Robin/Robin.csproj">
+    <Deploy />
+  </Project>
+</Solution>

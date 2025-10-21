@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name">Robin</string>
+    <string name="app_text">Hello, Android!</string>
+    <string name="app_subtitle">AI Voice Assistant</string>
+
+    <!-- Menu items -->
+    <string name="menu_chat">チャット</string>
+    <string name="menu_settings">設定</string>
+    <string name="menu_about">バージョン情報</string>
+
+    <!-- UI elements -->
+    <string name="mic_button_desc">音声入力ボタン</string>
+    <string name="robin_avatar_desc">ロビン（AIアシスタント）のアイコン</string>
+    <string name="listening">音声を認識中...</string>
+    <string name="thinking">AIが考え中...</string>
+    <string name="error_voice_recognition">音声認識エラー</string>
+    <string name="error_api">API通信エラー</string>
+    <string name="permission_required">マイクの使用許可が必要です</string>
+</resources>
