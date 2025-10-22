@@ -10,6 +10,7 @@ using Google.Android.Material.Navigation;
 using Robin.Adapters;
 using Robin.Models;
 using Robin.Services;
+using Robin.Views;
 
 namespace Robin;
 
@@ -23,6 +24,7 @@ public class MainActivity : AppCompatActivity
     private RecyclerView? _recyclerView;
     private FloatingActionButton? _micButton;
     private TextView? _statusText;
+    private View? _swipeHint;
 
     private MessageAdapter? _messageAdapter;
     private ConversationService? _conversationService;
@@ -42,8 +44,12 @@ public class MainActivity : AppCompatActivity
         SetupBackPressHandler();
         CheckPermissions();
 
-        // 起動時にドロワーを開く
+        // 起動時にドロワーを開く（スワイプヒントは非表示に）
         _drawerLayout?.OpenDrawer((int)GravityFlags.Start);
+        if (_swipeHint != null)
+        {
+            _swipeHint.Alpha = 0f; // ドロワーが開いているのでヒントは非表示
+        }
     }
 
     private void InitializeViews()
@@ -53,6 +59,7 @@ public class MainActivity : AppCompatActivity
         _recyclerView = FindViewById<RecyclerView>(Resource.Id.chat_recycler_view);
         _micButton = FindViewById<FloatingActionButton>(Resource.Id.mic_button);
         _statusText = FindViewById<TextView>(Resource.Id.status_text);
+        _swipeHint = FindViewById(Resource.Id.swipe_hint);
     }
 
     private void InitializeServices()
@@ -113,6 +120,12 @@ public class MainActivity : AppCompatActivity
                 _drawerLayout?.CloseDrawers();
             };
         }
+
+        // ドロワーのスライドリスナーを設定（ノッチの表示/非表示をアニメーション）
+        if (_drawerLayout != null)
+        {
+            _drawerLayout.AddDrawerListener(new DrawerListenerImpl(this));
+        }
     }
 
     private void SetupMicButton()
@@ -122,13 +135,17 @@ public class MainActivity : AppCompatActivity
 
         _micButton.Click += (sender, e) =>
         {
-            if (_voiceInputService?.IsListening == true)
+            if (_voiceInputService?.IsContinuousMode == true)
             {
+                // 継続モード中なら停止
                 _voiceInputService.StopListening();
+                UpdateMicButtonState();
             }
             else
             {
-                StartVoiceInput();
+                // 継続モードを有効にして開始
+                StartVoiceInput(enableContinuousMode: true);
+                UpdateMicButtonState();
             }
         };
     }
@@ -162,7 +179,7 @@ public class MainActivity : AppCompatActivity
         }
     }
 
-    private void StartVoiceInput()
+    private void StartVoiceInput(bool enableContinuousMode = false)
     {
         if (ContextCompat.CheckSelfPermission(this, Android.Manifest.Permission.RecordAudio) != Permission.Granted)
         {
@@ -171,7 +188,7 @@ public class MainActivity : AppCompatActivity
             return;
         }
 
-        _voiceInputService?.StartListening();
+        _voiceInputService?.StartListening(enableContinuousMode);
     }
 
     private void OnRecognitionStarted(object? sender, EventArgs e)
@@ -180,7 +197,7 @@ public class MainActivity : AppCompatActivity
         {
             _statusText?.SetText(Resource.String.listening);
             _statusText!.Visibility = ViewStates.Visible;
-            // マイクボタンの色を変えて録音中を示す（アイコンは固定）
+            UpdateMicButtonState();
         });
     }
 
@@ -189,7 +206,7 @@ public class MainActivity : AppCompatActivity
         RunOnUiThread(() =>
         {
             _statusText!.Visibility = ViewStates.Gone;
-            // マイクボタンを元の状態に戻す
+            UpdateMicButtonState();
         });
     }
 
@@ -259,6 +276,26 @@ public class MainActivity : AppCompatActivity
         Toast.MakeText(this, message, ToastLength.Short)?.Show();
     }
 
+    private void UpdateMicButtonState()
+    {
+        if (_micButton == null || _voiceInputService == null)
+            return;
+
+        RunOnUiThread(() =>
+        {
+            if (_voiceInputService.IsContinuousMode)
+            {
+                // 継続モード中は赤色
+                _micButton.BackgroundTintList = Android.Content.Res.ColorStateList.ValueOf(Android.Graphics.Color.ParseColor("#F44336"));
+            }
+            else
+            {
+                // 通常時はプライマリカラー
+                _micButton.BackgroundTintList = Android.Content.Res.ColorStateList.ValueOf(Android.Graphics.Color.ParseColor("#2196F3"));
+            }
+        });
+    }
+
     private void SetupBackPressHandler()
     {
         OnBackPressedDispatcher.AddCallback(this, new BackPressedCallback(true, () =>
@@ -286,6 +323,48 @@ public class MainActivity : AppCompatActivity
         public override void HandleOnBackPressed()
         {
             _onBackPressed.Invoke();
+        }
+    }
+
+    private class DrawerListenerImpl : Java.Lang.Object, DrawerLayout.IDrawerListener
+    {
+        private readonly MainActivity _activity;
+
+        public DrawerListenerImpl(MainActivity activity)
+        {
+            _activity = activity;
+        }
+
+        public void OnDrawerClosed(View drawerView)
+        {
+            // ドロワーが完全に閉じたらスワイプヒントを表示
+            _activity._swipeHint?.Animate()
+                .Alpha(1f)
+                .SetDuration(200)
+                .Start();
+        }
+
+        public void OnDrawerOpened(View drawerView)
+        {
+            // ドロワーが完全に開いたらスワイプヒントを非表示
+            _activity._swipeHint?.Animate()
+                .Alpha(0f)
+                .SetDuration(200)
+                .Start();
+        }
+
+        public void OnDrawerSlide(View drawerView, float slideOffset)
+        {
+            // スライド中はスワイプヒントの透明度を変更（0=閉じている、1=開いている）
+            if (_activity._swipeHint != null)
+            {
+                _activity._swipeHint.Alpha = 1f - slideOffset;
+            }
+        }
+
+        public void OnDrawerStateChanged(int newState)
+        {
+            // 状態変化時の処理（必要に応じて実装）
         }
     }
 

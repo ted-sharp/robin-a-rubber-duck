@@ -9,6 +9,7 @@ public class VoiceInputService
     private readonly Context _context;
     private SpeechRecognizer? _speechRecognizer;
     private bool _isListening;
+    private bool _continuousMode;
 
     public event EventHandler<string>? RecognitionResult;
     public event EventHandler<string>? RecognitionError;
@@ -16,16 +17,37 @@ public class VoiceInputService
     public event EventHandler? RecognitionStopped;
 
     public bool IsListening => _isListening;
+    public bool IsContinuousMode => _continuousMode;
 
     public VoiceInputService(Context context)
     {
         _context = context;
     }
 
-    public void StartListening()
+    public void StartListening(bool enableContinuousMode = false)
     {
+        if (enableContinuousMode)
+        {
+            _continuousMode = true;
+        }
+
         if (_isListening)
             return;
+
+        // 既存のインスタンスを確実に破棄
+        if (_speechRecognizer != null)
+        {
+            try
+            {
+                _speechRecognizer.Destroy();
+                _speechRecognizer.Dispose();
+            }
+            catch
+            {
+                // 破棄時のエラーは無視
+            }
+            _speechRecognizer = null;
+        }
 
         _speechRecognizer = SpeechRecognizer.CreateSpeechRecognizer(_context);
         if (_speechRecognizer == null)
@@ -41,6 +63,14 @@ public class VoiceInputService
         intent.PutExtra(RecognizerIntent.ExtraLanguage, "ja-JP");
         intent.PutExtra(RecognizerIntent.ExtraPartialResults, true);
 
+        // 継続モードの場合、無音タイムアウトを大幅に延長して途切れにくくする
+        if (_continuousMode)
+        {
+            intent.PutExtra(RecognizerIntent.ExtraSpeechInputCompleteSilenceLengthMillis, 30000L); // 30秒の無音で終了
+            intent.PutExtra(RecognizerIntent.ExtraSpeechInputPossiblyCompleteSilenceLengthMillis, 30000L); // 30秒
+            intent.PutExtra(RecognizerIntent.ExtraSpeechInputMinimumLengthMillis, 30000L); // 最小発話時間を30秒に
+        }
+
         _speechRecognizer.StartListening(intent);
         _isListening = true;
         RecognitionStarted?.Invoke(this, EventArgs.Empty);
@@ -48,6 +78,8 @@ public class VoiceInputService
 
     public void StopListening()
     {
+        _continuousMode = false;
+
         if (!_isListening)
             return;
 
@@ -96,6 +128,13 @@ public class VoiceInputService
                 _ => $"音声認識エラー: {error}"
             };
             _service.RecognitionError?.Invoke(_service, errorMessage);
+
+            // NoMatchエラー（無音タイムアウト）の場合は継続モードを終了
+            if (error == SpeechRecognizerError.NoMatch)
+            {
+                _service._continuousMode = false;
+                _service.RecognitionStopped?.Invoke(_service, EventArgs.Empty);
+            }
         }
 
         public void OnEvent(int eventType, Bundle? @params)
@@ -127,6 +166,19 @@ public class VoiceInputService
 
             _service._isListening = false;
             _service.RecognitionStopped?.Invoke(_service, EventArgs.Empty);
+
+            // 継続モードの場合、自動的に再開
+            if (_service._continuousMode)
+            {
+                // 少し待ってから再開（SpeechRecognizerの再初期化が必要なため）
+                new Handler(Looper.MainLooper!).PostDelayed(() =>
+                {
+                    if (_service._continuousMode && !_service._isListening)
+                    {
+                        _service.StartListening();
+                    }
+                }, 300); // 300ms待機
+            }
         }
 
         public void OnRmsChanged(float rmsdB)
