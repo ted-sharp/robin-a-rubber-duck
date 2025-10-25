@@ -45,4 +45,18 @@
       <Link>assets\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </AndroidAsset>
   </ItemGroup>
+
+  <!-- Nemo Parakeet CTC Model -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\models-prepared\sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8')">
+    <AndroidAsset Include="..\..\models-prepared\sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8\**\*">
+      <Link>assets\sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </AndroidAsset>
+  </ItemGroup>
+
+  <!-- Whisper Tiny Multilingual Model -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\models-prepared\sherpa-onnx-whisper-tiny')">
+    <AndroidAsset Include="..\..\models-prepared\sherpa-onnx-whisper-tiny\**\*">
+      <Link>assets\sherpa-onnx-whisper-tiny\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </AndroidAsset>
+  </ItemGroup>
 </Project>

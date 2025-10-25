@@ -36,12 +36,15 @@ public class MainActivity : AppCompatActivity
     // 音声認識エンジンの選択
     private bool _useSherpaOnnx = true; // true: Sherpa-ONNX, false: Android標準
     private string? _currentModelName = null; // 現在のモデル名
+    private string _selectedLanguage = "ja"; // 選択言語（デフォルト: 日本語）
 
     // 利用可能なモデル
     private readonly string[] _availableModels = new[]
     {
         "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01",
-        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"
+        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09",
+        "sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8",
+        "sherpa-onnx-whisper-tiny"
     };
 
     protected override void OnCreate(Bundle? savedInstanceState)
@@ -106,12 +109,8 @@ public class MainActivity : AppCompatActivity
                     _statusText!.Visibility = ViewStates.Visible;
                 });
 
-                // アセットからモデルを初期化（優先順位順）
-                string[] modelNames = new[]
-                {
-                    "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01",
-                    "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"
-                };
+                // アセットからモデルを初期化（利用可能なモデル）
+                string[] modelNames = _availableModels;
 
                 bool initialized = false;
                 string? successModel = null;
@@ -192,7 +191,16 @@ public class MainActivity : AppCompatActivity
     private void ShowModelSelectionDialog()
     {
         var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-        builder.SetTitle("モデルを選択");
+        builder.SetTitle("音声認識モデルを選択");
+
+        // モデルの表示名と説明
+        var modelDisplayNames = new string[]
+        {
+            "Zipformer Ja (高精度日本語)",
+            "SenseVoice (多言語)",
+            "Nemo CTC (日本語)",
+            "Whisper Tiny (多言語)"
+        };
 
         // 現在のモデルのインデックスを取得
         int checkedItem = -1;
@@ -209,11 +217,56 @@ public class MainActivity : AppCompatActivity
         }
 
         AndroidX.AppCompat.App.AlertDialog? dialog = null;
-        builder.SetSingleChoiceItems(_availableModels, checkedItem, (sender, e) =>
+        builder.SetSingleChoiceItems(modelDisplayNames, checkedItem, (sender, e) =>
         {
             var selectedModel = _availableModels[e.Which];
-            LoadModel(selectedModel);
+            // SenseVoiceまたはWhisperの場合は言語選択ダイアログを表示
+            if (selectedModel.Contains("sense-voice") || selectedModel.Contains("whisper"))
+            {
+                dialog?.Dismiss();
+                ShowLanguageSelectionDialog(selectedModel);
+            }
+            else
+            {
+                dialog?.Dismiss();
+                LoadModel(selectedModel);
+            }
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) =>
+        {
             dialog?.Dismiss();
+        });
+
+        dialog = builder.Create();
+        dialog?.Show();
+    }
+
+    private void ShowLanguageSelectionDialog(string modelName)
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        var modelType = modelName.Contains("sense-voice") ? "SenseVoice" : "Whisper";
+        builder.SetTitle($"{modelType} - 言語を選択");
+
+        var languages = new string[] { "日本語", "English", "中文 (簡体)", "한국어" };
+        var languageCodes = new string[] { "ja", "en", "zh", "ko" };
+
+        int checkedItem = 0;
+        for (int i = 0; i < languageCodes.Length; i++)
+        {
+            if (languageCodes[i] == _selectedLanguage)
+            {
+                checkedItem = i;
+                break;
+            }
+        }
+
+        AndroidX.AppCompat.App.AlertDialog? dialog = null;
+        builder.SetSingleChoiceItems(languages, checkedItem, (sender, e) =>
+        {
+            _selectedLanguage = languageCodes[e.Which];
+            dialog?.Dismiss();
+            LoadModel(modelName);
         });
 
         builder.SetNegativeButton("キャンセル", (sender, e) =>
@@ -240,8 +293,26 @@ public class MainActivity : AppCompatActivity
         {
             try
             {
-                Android.Util.Log.Info("MainActivity", $"モデル読み込み開始: {modelName}");
-                bool initialized = await _sherpaService.InitializeAsync(modelName, isFilePath: false);
+                Android.Util.Log.Info("MainActivity", $"モデル読み込み開始: {modelName} (Language: {_selectedLanguage})");
+
+                // モデルパスの判定（assets内 vs 外部ストレージ）
+                bool isFilePath = false;
+                string resolvedModelPath = modelName;
+
+                // 外部ストレージのパスをチェック
+                string externalPath = GetExternalModelsPath(modelName);
+                if (Directory.Exists(externalPath))
+                {
+                    isFilePath = true;
+                    resolvedModelPath = externalPath;
+                    Android.Util.Log.Info("MainActivity", $"外部ストレージからロード: {externalPath}");
+                }
+                else
+                {
+                    Android.Util.Log.Info("MainActivity", $"アセットからロード: {modelName}");
+                }
+
+                bool initialized = await _sherpaService.InitializeAsync(resolvedModelPath, isFilePath: isFilePath, language: _selectedLanguage);
 
                 if (initialized)
                 {
@@ -274,6 +345,33 @@ public class MainActivity : AppCompatActivity
                 });
             }
         });
+    }
+
+    /// <summary>
+    /// 外部ストレージのモデルパスを取得
+    /// </summary>
+    private string GetExternalModelsPath(string modelName)
+    {
+        // 複数の可能なパスを試す
+        string[] possiblePaths = new[]
+        {
+            // アプリキャッシュディレクトリ内のmodels
+            System.IO.Path.Combine(CacheDir?.AbsolutePath ?? "", "models", modelName),
+            // 外部キャッシュディレクトリ
+            System.IO.Path.Combine(ExternalCacheDir?.AbsolutePath ?? "", "models", modelName),
+            // 公開なディレクトリ（必要に応じて）
+            System.IO.Path.Combine(Android.OS.Environment.ExternalStorageDirectory?.AbsolutePath ?? "", "Robin", "models", modelName)
+        };
+
+        foreach (var path in possiblePaths)
+        {
+            if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+            {
+                return path;
+            }
+        }
+
+        return ""; // 見つからない場合は空文字列を返す
     }
 
     private void SetupRecyclerView()

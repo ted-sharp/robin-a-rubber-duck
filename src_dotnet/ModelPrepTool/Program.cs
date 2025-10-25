@@ -1,5 +1,6 @@
 ﻿using Robin.Core.Models;
 using Robin.Core.Services;
+using System.Text.Json;
 
 namespace ModelPrepTool;
 
@@ -39,9 +40,12 @@ class Program
                 return 0;
             }
 
+            // Load configuration
+            var config = LoadConfiguration(options.ConfigFile);
+
             // Select Sherpa models
-            var sherpasToDownload = SelectSherpaModels(options.ModelId);
-            var qwenToDownload = SelectQwenModels(options.ModelId);
+            var sherpasToDownload = SelectSherpaModels(options.ModelId, config);
+            var qwenToDownload = SelectQwenModels(options.ModelId, config);
 
             if (sherpasToDownload.Length == 0 && qwenToDownload.Length == 0)
             {
@@ -126,54 +130,96 @@ class Program
         Console.Write($"\r  Progress: {e.ProgressPercentage:F1}% ({downloadedMB:F1} / {totalMB:F1} MB) @ {e.SpeedMBps:F2} MB/s   ");
     }
 
-    static SherpaModelDefinition[] SelectSherpaModels(string? modelId)
+    static SherpaModelDefinition[] SelectSherpaModels(string? modelId, ModelConfig config)
     {
-        if (string.IsNullOrEmpty(modelId) || modelId == "all")
-        {
-            return SherpaModelDefinition.JapaneseModels;
-        }
+        IEnumerable<SherpaModelDefinition> models;
 
-        // Check if it's a Qwen model
-        if (QwenModelDefinition.GetById(modelId) != null)
+        if (!string.IsNullOrEmpty(modelId) && modelId != "all")
         {
-            return Array.Empty<SherpaModelDefinition>();
-        }
-
-        var model = SherpaModelDefinition.GetById(modelId);
-        if (model == null)
-        {
-            Console.WriteLine($"Unknown model ID: {modelId}");
-            Console.WriteLine("Available Sherpa-ONNX models:");
-            foreach (var m in SherpaModelDefinition.JapaneseModels)
+            // Check if it's a Qwen model
+            if (QwenModelDefinition.GetById(modelId) != null)
             {
-                Console.WriteLine($"  - {m.Id}");
+                return Array.Empty<SherpaModelDefinition>();
             }
-            Console.WriteLine("Available Qwen models:");
-            foreach (var m in QwenModelDefinition.AvailableModels)
+
+            var model = SherpaModelDefinition.GetById(modelId);
+            if (model == null)
             {
-                Console.WriteLine($"  - {m.Id}");
+                Console.WriteLine($"Unknown model ID: {modelId}");
+                Console.WriteLine("Available Sherpa-ONNX models:");
+                foreach (var m in SherpaModelDefinition.JapaneseModels)
+                {
+                    Console.WriteLine($"  - {m.Id}");
+                }
+                Console.WriteLine("Available Qwen models:");
+                foreach (var m in QwenModelDefinition.AvailableModels)
+                {
+                    Console.WriteLine($"  - {m.Id}");
+                }
+                return Array.Empty<SherpaModelDefinition>();
             }
-            return Array.Empty<SherpaModelDefinition>();
+
+            return new[] { model };
         }
 
-        return new[] { model };
+        // Use all Sherpa models
+        models = SherpaModelDefinition.JapaneseModels;
+
+        // Filter by configuration
+        var toDownload = models.Where(m => config.IsModelEnabled(m.Id)).ToArray();
+
+        // Show skipped models
+        var skipped = models.Where(m => !config.IsModelEnabled(m.Id)).ToArray();
+        if (skipped.Length > 0)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("[SKIP] 以下の Sherpa-ONNX モデルはスキップします:");
+            foreach (var model in skipped)
+            {
+                Console.WriteLine($"  - {model.Id} ({model.Name})");
+            }
+            Console.ResetColor();
+        }
+
+        return toDownload;
     }
 
-    static QwenModelDefinition[] SelectQwenModels(string? modelId)
+    static QwenModelDefinition[] SelectQwenModels(string? modelId, ModelConfig config)
     {
-        if (string.IsNullOrEmpty(modelId) || modelId == "all")
+        IEnumerable<QwenModelDefinition> models;
+
+        if (!string.IsNullOrEmpty(modelId) && modelId != "all")
         {
-            return QwenModelDefinition.AvailableModels;
+            // Check if it's a Sherpa model
+            if (SherpaModelDefinition.GetById(modelId) != null)
+            {
+                return Array.Empty<QwenModelDefinition>();
+            }
+
+            var model = QwenModelDefinition.GetById(modelId);
+            return model == null ? Array.Empty<QwenModelDefinition>() : new[] { model };
         }
 
-        // Check if it's a Sherpa model
-        if (SherpaModelDefinition.GetById(modelId) != null)
+        // Use all Qwen models
+        models = QwenModelDefinition.AvailableModels;
+
+        // Filter by configuration
+        var toDownload = models.Where(m => config.IsModelEnabled(m.Id)).ToArray();
+
+        // Show skipped models
+        var skipped = models.Where(m => !config.IsModelEnabled(m.Id)).ToArray();
+        if (skipped.Length > 0)
         {
-            return Array.Empty<QwenModelDefinition>();
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("[SKIP] 以下の Qwen モデルはスキップします:");
+            foreach (var model in skipped)
+            {
+                Console.WriteLine($"  - {model.Id} ({model.Name})");
+            }
+            Console.ResetColor();
         }
 
-        var model = QwenModelDefinition.GetById(modelId);
-        return model == null ? Array.Empty<QwenModelDefinition>() : new[] { model };
+        return toDownload;
     }
 
     static void ShowModelList(string outputDir)
@@ -211,10 +257,37 @@ class Program
         var totalSize = 0L;
         var preparedCount = 0;
 
+        // Sherpa-ONNX Models
+        Console.WriteLine("Sherpa-ONNX Speech Recognition:");
         foreach (var model in SherpaModelDefinition.JapaneseModels)
         {
             var modelPath = Path.Combine(outputDir, model.FolderName);
             if (Directory.Exists(modelPath) && ModelVerifier.VerifyModel(modelPath, model))
+            {
+                var size = ModelVerifier.GetModelSize(modelPath);
+                var sizeMB = size / (1024.0 * 1024.0);
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"  [Ready] {model.Name} ({sizeMB:F1} MB)");
+                Console.ResetColor();
+
+                totalSize += size;
+                preparedCount++;
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Gray;
+                Console.WriteLine($"  [Not prepared] {model.Name}");
+                Console.ResetColor();
+            }
+        }
+
+        // Qwen Models
+        Console.WriteLine("\nQwen Text Inference:");
+        foreach (var model in QwenModelDefinition.AvailableModels)
+        {
+            var modelPath = Path.Combine(outputDir, model.FolderName);
+            if (Directory.Exists(modelPath))
             {
                 var size = ModelVerifier.GetModelSize(modelPath);
                 var sizeMB = size / (1024.0 * 1024.0);
@@ -320,10 +393,88 @@ class Program
                         options.OutputDirectory = args[++i];
                     }
                     break;
+                case "--config":
+                    if (i + 1 < args.Length)
+                    {
+                        options.ConfigFile = args[++i];
+                    }
+                    break;
             }
         }
 
         return options;
+    }
+
+    static ModelConfig LoadConfiguration(string? configFile)
+    {
+        var config = new ModelConfig();
+
+        // Use default config file if not specified
+        configFile ??= Path.Combine(
+            Path.GetDirectoryName(AppContext.BaseDirectory)!,
+            "model-prep-config.json"
+        );
+
+        if (!File.Exists(configFile))
+        {
+            // Create default configuration if it doesn't exist
+            CreateDefaultConfig(configFile);
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"[INFO] Created default configuration at: {configFile}");
+            Console.ResetColor();
+            return config;
+        }
+
+        try
+        {
+            var json = File.ReadAllText(configFile);
+            var options = new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true,
+                ReadCommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true
+            };
+            var loadedConfig = JsonSerializer.Deserialize<ModelConfig>(json, options);
+            if (loadedConfig != null)
+            {
+                config = loadedConfig;
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[INFO] Loaded configuration from: {configFile}");
+                Console.ResetColor();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"[WARN] Failed to load configuration: {ex.Message}");
+            Console.WriteLine($"[WARN] Using default configuration");
+            Console.ResetColor();
+        }
+
+        return config;
+    }
+
+    static void CreateDefaultConfig(string configFile)
+    {
+        var config = new ModelConfig
+        {
+            EnabledModels = new[]
+            {
+                "sense-voice-ja-zh-en",
+                "zipformer-ja-reazonspeech",
+                "qwen-2.5-0.5b"
+            }
+        };
+
+        var json = JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true });
+
+        var directory = Path.GetDirectoryName(configFile);
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllText(configFile, json);
     }
 
     static void ShowQwenSetupInstructions(string modelPath, string folderName)
@@ -358,15 +509,19 @@ Usage:
   ModelPrepTool [options]
 
 Options:
-  --help, -h              Show this help message
-  --list, -l              List available models and their status
-  --clean, -c             Clean archive files (keep extracted models)
-  --model, -m <id>        Prepare specific model (default: all)
-  --output, -o <path>     Output directory (default: ../models-prepared)
+  --help, -h                Show this help message
+  --list, -l                List available models and their status
+  --clean, -c               Clean archive files (keep extracted models)
+  --model, -m <id>          Prepare specific model (default: all)
+  --output, -o <path>       Output directory (default: ../models-prepared)
+  --config <path>           Configuration file (default: model-prep-config.json)
+                            JSON file to specify which models to download
 
 Examples:
   ModelPrepTool --list
-  ModelPrepTool --model sense-voice-ja-zh-en
+  ModelPrepTool                                    # Uses model-prep-config.json
+  ModelPrepTool --config custom-config.json
+  ModelPrepTool --model sense-voice-ja-zh-en      # Prepare single model
   ModelPrepTool --model zipformer-ja-reazonspeech
   ModelPrepTool --model whisper-tiny
   ModelPrepTool --model nemo-parakeet-cja
@@ -374,6 +529,20 @@ Examples:
   ModelPrepTool --model qwen-2.5-1.5b-int4
   ModelPrepTool --model all
   ModelPrepTool --clean
+
+Configuration File Format (model-prep-config.json):
+  {
+    ""enabledModels"": [
+      ""sense-voice-ja-zh-en"",
+      ""zipformer-ja-reazonspeech"",
+      ""qwen-2.5-0.5b""
+    ]
+  }
+
+  By default, the tool will:
+  1. Look for model-prep-config.json in the current directory
+  2. If not found, create it with default models enabled
+  3. Use the configuration to filter which models to download
 
 Available Model IDs:
 
@@ -399,5 +568,29 @@ Available Model IDs:
         public bool CleanCache { get; set; }
         public string? ModelId { get; set; }
         public string? OutputDirectory { get; set; }
+        public string? ConfigFile { get; set; }
+    }
+
+    class ModelConfig
+    {
+        public string[]? EnabledModels { get; set; } = new[]
+        {
+            "sense-voice-ja-zh-en",
+            "zipformer-ja-reazonspeech",
+            "whisper-tiny",
+            "nemo-parakeet-cja",
+            "qwen-2.5-0.5b",
+            "qwen-2.5-1.5b-int4"
+        };
+
+        public bool IsModelEnabled(string modelId)
+        {
+            if (EnabledModels == null || EnabledModels.Length == 0)
+            {
+                return true;
+            }
+
+            return EnabledModels.Contains(modelId, StringComparer.OrdinalIgnoreCase);
+        }
     }
 }

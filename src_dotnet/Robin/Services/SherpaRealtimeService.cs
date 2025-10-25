@@ -58,12 +58,13 @@ public class SherpaRealtimeService : IDisposable
     private const Encoding AudioFormat = Encoding.Pcm16bit;
     private const int BufferSizeInMs = 100; // 100ms バッファ
     private const int ChunkDurationSeconds = 3; // 3秒ごとに認識（精度優先）
-    private const float ChunkOverlapRatio = 0.3f; // 30%オーバーラップ（滑らかな認識のため）
+    private const float ChunkOverlapRatio = 0.0f; // オーバーラップなし（前のデータが混在しないように）
 
     // ===== Sherpa-ONNX 認識エンジン =====
     private OfflineRecognizer? _recognizer;
     private List<float> _audioBuffer = new List<float>();
     private readonly object _bufferLock = new object();
+    private string _selectedLanguage = "ja"; // デフォルト言語は日本語
 
     // 認識ライフサイクル用イベント
     // 将来の実装: PartialResultは途中結果の表示に使用予定
@@ -116,14 +117,12 @@ public class SherpaRealtimeService : IDisposable
             Joiner = joinerFile
         };
 
-        var modelConfig = new OfflineModelConfig
-        {
-            Tokens = tokensFile,
-            Transducer = transducerConfig,
-            NumThreads = 4, // スレッド数を増加（精度向上）
-            Debug = false,
-            ModelType = "zipformer"
-        };
+        var modelConfig = new OfflineModelConfig();
+        modelConfig.Transducer = transducerConfig;
+        modelConfig.Tokens = tokensFile;
+        modelConfig.NumThreads = 4;
+        modelConfig.Debug = false;
+        modelConfig.ModelType = "zipformer";
 
         var featConfig = new FeatureConfig
         {
@@ -151,24 +150,23 @@ public class SherpaRealtimeService : IDisposable
         Log.Info(TAG, $"  - Model: {modelFile}");
         Log.Info(TAG, $"  - Tokens: {tokensFile}");
         Log.Info(TAG, $"  - UseITN: 1 (有効)");
+        Log.Info(TAG, $"  - Language: {_selectedLanguage}");
 
         // 注: ファイル存在チェックは CheckModelFilesAsync で既に完了しているため、ここでは省略
 
         var senseVoiceConfig = new OfflineSenseVoiceModelConfig
         {
             Model = modelFile,
+            Language = _selectedLanguage, // 選択した言語を設定
             UseInverseTextNormalization = true // 数字のテキスト正規化などを有効化
-            // Language パラメータは SenseVoice では使用しない（モデルが自動判定）
         };
 
-        var modelConfig = new OfflineModelConfig
-        {
-            Tokens = tokensFile,
-            SenseVoice = senseVoiceConfig,
-            NumThreads = 4, // スレッド数を増加（精度向上）
-            Debug = false,
-            ModelType = "sense_voice"
-        };
+        var modelConfig = new OfflineModelConfig();
+        modelConfig.SenseVoice = senseVoiceConfig;
+        modelConfig.Tokens = tokensFile;
+        modelConfig.NumThreads = 4;
+        modelConfig.Debug = false;
+        modelConfig.ModelType = "sense_voice";
 
         var featConfig = new FeatureConfig
         {
@@ -180,7 +178,44 @@ public class SherpaRealtimeService : IDisposable
         {
             FeatConfig = featConfig,
             ModelConfig = modelConfig,
-            DecodingMethod = "modified_beam_search" // beam_searchに変更（精度向上）
+            DecodingMethod = "greedy_search" // SenseVoiceはgreedy_searchのみサポート
+        };
+    }
+
+    /// <summary>
+    /// Nemoモデル用の設定を作成 (Enc-Dec CTC)
+    /// </summary>
+    private OfflineRecognizerConfig CreateNemoConfig(string pathPrefix)
+    {
+        string modelFile = $"{pathPrefix}/model.int8.onnx";
+        string tokensFile = $"{pathPrefix}/tokens.txt";
+
+        Log.Info(TAG, $"モデル設定 (Nemo Enc-Dec CTC):");
+        Log.Info(TAG, $"  - Model: {modelFile}");
+        Log.Info(TAG, $"  - Tokens: {tokensFile}");
+
+        // 注: ファイル存在チェックは CheckModelFilesAsync で既に完了しているため、ここでは省略
+
+        var nemoConfig = new OfflineNemoEncDecCtcModelConfig(modelFile);
+
+        var modelConfig = new OfflineModelConfig();
+        modelConfig.Nemo = nemoConfig;
+        modelConfig.Tokens = tokensFile;
+        modelConfig.NumThreads = 2;
+        modelConfig.Debug = false;
+        modelConfig.ModelType = "nemo_ctc";
+
+        var featConfig = new FeatureConfig
+        {
+            SampleRate = SampleRate,
+            FeatureDim = 80
+        };
+
+        return new OfflineRecognizerConfig
+        {
+            FeatConfig = featConfig,
+            ModelConfig = modelConfig,
+            DecodingMethod = "greedy_search"
         };
     }
 
@@ -197,7 +232,7 @@ public class SherpaRealtimeService : IDisposable
         Log.Info(TAG, $"  - Encoder: {encoderFile}");
         Log.Info(TAG, $"  - Decoder: {decoderFile}");
         Log.Info(TAG, $"  - Tokens: {tokensFile}");
-        Log.Info(TAG, $"  - Language: (空=multilingual自動検出)");
+        Log.Info(TAG, $"  - Language: {_selectedLanguage}");
         Log.Info(TAG, $"  - Task: transcribe");
 
         // 注: ファイル存在チェックは CheckModelFilesAsync で既に完了しているため、ここでは省略
@@ -206,19 +241,17 @@ public class SherpaRealtimeService : IDisposable
         {
             Encoder = encoderFile,
             Decoder = decoderFile,
-            Language = "", // 空文字列 = multilingual（自動言語検出）
+            Language = _selectedLanguage, // 選択した言語を設定（空文字列=自動検出）
             Task = "transcribe", // "transcribe" または "translate"
             TailPaddings = -1 // -1 = デフォルト値を使用
         };
 
-        var modelConfig = new OfflineModelConfig
-        {
-            Tokens = tokensFile,
-            Whisper = whisperConfig,
-            NumThreads = 2,
-            Debug = true,
-            ModelType = "whisper"
-        };
+        var modelConfig = new OfflineModelConfig();
+        modelConfig.Whisper = whisperConfig;
+        modelConfig.Tokens = tokensFile;
+        modelConfig.NumThreads = 2;
+        modelConfig.Debug = false;
+        modelConfig.ModelType = "whisper";
 
         var featConfig = new FeatureConfig
         {
@@ -239,11 +272,22 @@ public class SherpaRealtimeService : IDisposable
     /// </summary>
     /// <param name="modelPath">モデルパス（assetsパス or ファイルシステムパス）</param>
     /// <param name="isFilePath">trueの場合ファイルシステムパス、falseの場合assetsパス</param>
-    public async Task<bool> InitializeAsync(string modelPath, bool isFilePath = false)
+    /// <param name="language">認識言語（SenseVoice/Whisper用）。デフォルト: "ja"</param>
+    public async Task<bool> InitializeAsync(string modelPath, bool isFilePath = false, string language = "ja")
     {
         try
         {
-            Log.Info(TAG, $"初期化開始 - モデルパス: {modelPath} (FilePath={isFilePath})");
+            Log.Info(TAG, $"初期化開始 - モデルパス: {modelPath} (FilePath={isFilePath}, Language={language})");
+
+            // 選択言語を保存
+            _selectedLanguage = language;
+
+            // 古いバッファをクリア（前のモデルのデータが混在するのを防ぐ）
+            lock (_bufferLock)
+            {
+                _audioBuffer.Clear();
+                Log.Debug(TAG, "モデル初期化前：音声バッファをクリアしました");
+            }
 
             // 既に実行中の音声認識を停止
             if (_isListening)
@@ -295,17 +339,42 @@ public class SherpaRealtimeService : IDisposable
             OfflineRecognizerConfig config;
 
             // ファイルパターンでモデルタイプを判定
-            if (files.Any(f => f?.Equals("model.int8.onnx", StringComparison.OrdinalIgnoreCase) == true))
+            bool hasEncoderDecoder = files.Any(f => f?.Contains("encoder") == true) &&
+                                     files.Any(f => f?.Contains("decoder") == true);
+            bool hasJoiner = files.Any(f => f?.Contains("joiner") == true);
+            bool hasModelOnnx = files.Any(f => f?.Equals("model.int8.onnx", StringComparison.OrdinalIgnoreCase) == true);
+            bool hasWhisperTokens = files.Any(f => f?.Equals("tiny-tokens.txt", StringComparison.OrdinalIgnoreCase) == true);
+
+            if (hasEncoderDecoder && hasJoiner)
             {
-                Log.Info(TAG, "モデルタイプ: SenseVoice");
-                config = CreateSenseVoiceConfig(pathPrefix);
-            }
-            else if (files.Any(f => f?.Contains("encoder") == true) &&
-                     files.Any(f => f?.Contains("decoder") == true) &&
-                     files.Any(f => f?.Contains("joiner") == true))
-            {
-                Log.Info(TAG, "モデルタイプ: Zipformer");
+                Log.Info(TAG, "モデルタイプ: Zipformer Transducer");
                 config = CreateZipformerConfig(pathPrefix);
+            }
+            else if (hasWhisperTokens && hasEncoderDecoder)
+            {
+                Log.Info(TAG, "モデルタイプ: Whisper");
+                config = CreateWhisperConfig(pathPrefix);
+            }
+            else if (hasModelOnnx && files.Any(f => f?.Equals("tokens.txt", StringComparison.OrdinalIgnoreCase) == true))
+            {
+                // SenseVoiceまたはNemoの判定（モデル名から推測）
+                if (modelPath.Contains("sense-voice", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Info(TAG, "モデルタイプ: SenseVoice");
+                    config = CreateSenseVoiceConfig(pathPrefix);
+                }
+                else if (modelPath.Contains("nemo", StringComparison.OrdinalIgnoreCase) ||
+                         modelPath.Contains("parakeet", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Info(TAG, "モデルタイプ: Nemo CTC");
+                    config = CreateNemoConfig(pathPrefix);
+                }
+                else
+                {
+                    // デフォルトはSenseVoiceとして扱う
+                    Log.Info(TAG, "モデルタイプ: model.int8.onnx - SenseVoiceとして扱う");
+                    config = CreateSenseVoiceConfig(pathPrefix);
+                }
             }
             else
             {
@@ -414,6 +483,14 @@ public class SherpaRealtimeService : IDisposable
 
         string verboseFlag = VerboseLoggingEnabled ? "✓詳細ログON" : "";
         Log.Info(TAG, $"🎙️ 音声認識開始 (連続モード, チャンク={ChunkDurationSeconds}秒, スレッド=4, デコード=beam_search) {verboseFlag}");
+
+        // 前のバッファをクリア（前の認識データが混在するのを防ぐ）
+        lock (_bufferLock)
+        {
+            _audioBuffer.Clear();
+            Log.Debug(TAG, "マイク開始前：音声バッファをクリアしました");
+        }
+
         _isListening = true; // ユーザーがマイクボタンをONにした
         _audioRecord?.StartRecording();
         RecognitionStarted?.Invoke(this, EventArgs.Empty);
