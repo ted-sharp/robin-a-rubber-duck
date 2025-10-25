@@ -1,4 +1,4 @@
-using Android.Content;
+﻿using Android.Content;
 using Android.Graphics;
 using Android.Runtime;
 using Android.Util;
@@ -70,10 +70,10 @@ public class SwipeHintView : View
 
     protected override void OnDraw(Canvas? canvas)
     {
-        base.OnDraw(canvas);
-
         if (canvas == null)
             return;
+
+        base.OnDraw(canvas);
 
         // 矢印を描画
         canvas.DrawPath(_arrowPath, _arrowPaint);

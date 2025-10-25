@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="音声認識モデルが見つかりません"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="音声認識を使用するには、モデルファイルが必要です。\n以下の方法からお選びください。"
+        android:textSize="14sp"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="必須ファイル:\n• encoder-epoch-99-avg-1.int8.onnx\n• decoder-epoch-99-avg-1.int8.onnx\n• joiner-epoch-99-avg-1.int8.onnx\n• tokens.txt"
+        android:textSize="12sp"
+        android:fontFamily="monospace"
+        android:background="#F5F5F5"
+        android:padding="8dp"
+        android:layout_marginBottom="24dp" />
+
+    <!-- ローカルファイル選択ボタン -->
+    <Button
+        android:id="@+id/button_select_local_file"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="ローカルファイルから選択"
+        android:drawableLeft="@android:drawable/ic_menu_upload"
+        android:drawablePadding="8dp"
+        android:layout_marginBottom="12dp" />
+
+    <!-- ダウンロードボタン -->
+    <Button
+        android:id="@+id/button_download_model"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="モデルをダウンロード (約680MB)"
+        android:drawableLeft="@android:drawable/stat_sys_download"
+        android:drawablePadding="8dp"
+        android:layout_marginBottom="12dp" />
+
+    <!-- WiFi警告 -->
+    <TextView
+        android:id="@+id/text_wifi_warning"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="⚠️ WiFi接続が必要です"
+        android:textSize="12sp"
+        android:textColor="#F44336"
+        android:layout_marginBottom="16dp"
+        android:visibility="gone" />
+
+    <!-- キャンセルボタン -->
+    <Button
+        android:id="@+id/button_cancel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="キャンセル" />
+
+</LinearLayout>

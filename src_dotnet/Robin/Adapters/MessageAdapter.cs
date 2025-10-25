@@ -1,4 +1,4 @@
-using Android.Views;
+﻿using Android.Views;
 using AndroidX.RecyclerView.Widget;
 using Robin.Models;
 

@@ -1,0 +1,761 @@
+﻿using System.Threading;
+using System.Threading.Tasks;
+using Android.Content;
+using Android.Media;
+using Android.OS;
+using Android.Util;
+using Com.K2fsa.Sherpa.Onnx;
+using Java.IO;
+
+namespace Robin.Services;
+
+/// <summary>
+/// Sherpa-ONNXを使用した音声認識サービス
+/// すべてOffline(非ストリーミング)モデル・システム音なし
+/// チャンク処理で疑似リアルタイム認識を実現
+/// </summary>
+public class SherpaRealtimeService : IDisposable
+{
+    private const string TAG = "SherpaRealtimeService";
+    private readonly Context _context;
+    private AudioRecord? _audioRecord;
+    private Thread? _recordingThread;
+
+    // ===== 認識状態 =====
+    /// <summary>
+    /// ユーザーがマイクボタンをONにしているか（マイクが有効かどうか）
+    ///
+    /// true の意味:
+    ///   - ユーザーがマイクボタンをONにした
+    ///   - 現在、音声入力が進行中（マイクから録音中）
+    ///   - 認識完了後、自動で次の認識に進む（連続認識モード）
+    ///
+    /// false の意味:
+    ///   - ユーザーがマイクボタンをOFFにした
+    ///   - 音声入力が停止している
+    ///   - 認識は実行されない
+    ///
+    /// 設定: StartListening() で true、StopListening() で false
+    /// </summary>
+    private bool _isListening;
+
+    /// <summary>
+    /// モデルが正常に初期化されたかどうか
+    /// true: 初期化完了、認識可能 / false: 未初期化または初期化失敗
+    ///
+    /// 設定: InitializeAsync() で true、DisposeRecognizer() で false
+    /// </summary>
+    private bool _isInitialized;
+
+
+    // ===== ログ機能 =====
+    /// <summary>詳細ログ機能（画面から切り替え可能）</summary>
+    public static bool VerboseLoggingEnabled { get; set; } = false;
+
+    // ===== 音声処理パラメータ =====
+    private const int SampleRate = 16000;
+    private const ChannelIn ChannelConfig = ChannelIn.Mono;
+    private const Encoding AudioFormat = Encoding.Pcm16bit;
+    private const int BufferSizeInMs = 100; // 100ms バッファ
+    private const int ChunkDurationSeconds = 3; // 3秒ごとに認識（精度優先）
+    private const float ChunkOverlapRatio = 0.3f; // 30%オーバーラップ（滑らかな認識のため）
+
+    // ===== Sherpa-ONNX 認識エンジン =====
+    private OfflineRecognizer? _recognizer;
+    private List<float> _audioBuffer = new List<float>();
+    private readonly object _bufferLock = new object();
+
+    // 認識ライフサイクル用イベント
+    // 将来の実装: PartialResultは途中結果の表示に使用予定
+#pragma warning disable CS0067
+    public event EventHandler<string>? PartialResult;
+#pragma warning restore CS0067
+
+    public event EventHandler<string>? FinalResult;
+    public event EventHandler<string>? Error;
+    public event EventHandler? RecognitionStarted;
+    public event EventHandler? RecognitionStopped;
+    public event EventHandler<InitializationProgressEventArgs>? InitializationProgress;
+
+    public class InitializationProgressEventArgs : EventArgs
+    {
+        public string Status { get; set; } = "";
+        public int ProgressPercentage { get; set; }
+    }
+
+    public bool IsListening => _isListening;
+    public bool IsInitialized => _isInitialized;
+
+    public SherpaRealtimeService(Context context)
+    {
+        _context = context;
+    }
+
+    /// <summary>
+    /// Zipformerモデル用の設定を作成
+    /// </summary>
+    private OfflineRecognizerConfig CreateZipformerConfig(string pathPrefix)
+    {
+        string encoderFile = $"{pathPrefix}/encoder-epoch-99-avg-1.onnx";
+        string decoderFile = $"{pathPrefix}/decoder-epoch-99-avg-1.onnx";
+        string joinerFile = $"{pathPrefix}/joiner-epoch-99-avg-1.int8.onnx";
+        string tokensFile = $"{pathPrefix}/tokens.txt";
+
+        Log.Info(TAG, $"モデル設定 (Zipformer Transducer):");
+        Log.Info(TAG, $"  - Encoder: {encoderFile}");
+        Log.Info(TAG, $"  - Decoder: {decoderFile}");
+        Log.Info(TAG, $"  - Joiner: {joinerFile}");
+        Log.Info(TAG, $"  - Tokens: {tokensFile}");
+
+        // 注: ファイル存在チェックは CheckModelFilesAsync で既に完了しているため、ここでは省略
+
+        var transducerConfig = new OfflineTransducerModelConfig
+        {
+            Encoder = encoderFile,
+            Decoder = decoderFile,
+            Joiner = joinerFile
+        };
+
+        var modelConfig = new OfflineModelConfig
+        {
+            Tokens = tokensFile,
+            Transducer = transducerConfig,
+            NumThreads = 4, // スレッド数を増加（精度向上）
+            Debug = false,
+            ModelType = "zipformer"
+        };
+
+        var featConfig = new FeatureConfig
+        {
+            SampleRate = SampleRate,
+            FeatureDim = 80
+        };
+
+        return new OfflineRecognizerConfig
+        {
+            FeatConfig = featConfig,
+            ModelConfig = modelConfig,
+            DecodingMethod = "modified_beam_search" // beam_searchに変更（精度向上）
+        };
+    }
+
+    /// <summary>
+    /// SenseVoiceモデル用の設定を作成 (Offline, 非ストリーミング)
+    /// </summary>
+    private OfflineRecognizerConfig CreateSenseVoiceConfig(string pathPrefix)
+    {
+        string modelFile = $"{pathPrefix}/model.int8.onnx";
+        string tokensFile = $"{pathPrefix}/tokens.txt";
+
+        Log.Info(TAG, $"モデル設定 (SenseVoice - Offline CTC):");
+        Log.Info(TAG, $"  - Model: {modelFile}");
+        Log.Info(TAG, $"  - Tokens: {tokensFile}");
+        Log.Info(TAG, $"  - UseITN: 1 (有効)");
+
+        // 注: ファイル存在チェックは CheckModelFilesAsync で既に完了しているため、ここでは省略
+
+        var senseVoiceConfig = new OfflineSenseVoiceModelConfig
+        {
+            Model = modelFile,
+            UseInverseTextNormalization = true // 数字のテキスト正規化などを有効化
+            // Language パラメータは SenseVoice では使用しない（モデルが自動判定）
+        };
+
+        var modelConfig = new OfflineModelConfig
+        {
+            Tokens = tokensFile,
+            SenseVoice = senseVoiceConfig,
+            NumThreads = 4, // スレッド数を増加（精度向上）
+            Debug = false,
+            ModelType = "sense_voice"
+        };
+
+        var featConfig = new FeatureConfig
+        {
+            SampleRate = SampleRate,
+            FeatureDim = 80
+        };
+
+        return new OfflineRecognizerConfig
+        {
+            FeatConfig = featConfig,
+            ModelConfig = modelConfig,
+            DecodingMethod = "modified_beam_search" // beam_searchに変更（精度向上）
+        };
+    }
+
+    /// <summary>
+    /// Whisperモデル用の設定を作成 (Offline, 非ストリーミング)
+    /// </summary>
+    private OfflineRecognizerConfig CreateWhisperConfig(string pathPrefix)
+    {
+        string encoderFile = $"{pathPrefix}/tiny-encoder.int8.onnx";
+        string decoderFile = $"{pathPrefix}/tiny-decoder.int8.onnx";
+        string tokensFile = $"{pathPrefix}/tiny-tokens.txt";
+
+        Log.Info(TAG, $"モデル設定 (Whisper - Offline):");
+        Log.Info(TAG, $"  - Encoder: {encoderFile}");
+        Log.Info(TAG, $"  - Decoder: {decoderFile}");
+        Log.Info(TAG, $"  - Tokens: {tokensFile}");
+        Log.Info(TAG, $"  - Language: (空=multilingual自動検出)");
+        Log.Info(TAG, $"  - Task: transcribe");
+
+        // 注: ファイル存在チェックは CheckModelFilesAsync で既に完了しているため、ここでは省略
+
+        var whisperConfig = new OfflineWhisperModelConfig
+        {
+            Encoder = encoderFile,
+            Decoder = decoderFile,
+            Language = "", // 空文字列 = multilingual（自動言語検出）
+            Task = "transcribe", // "transcribe" または "translate"
+            TailPaddings = -1 // -1 = デフォルト値を使用
+        };
+
+        var modelConfig = new OfflineModelConfig
+        {
+            Tokens = tokensFile,
+            Whisper = whisperConfig,
+            NumThreads = 2,
+            Debug = true,
+            ModelType = "whisper"
+        };
+
+        var featConfig = new FeatureConfig
+        {
+            SampleRate = SampleRate,
+            FeatureDim = 80
+        };
+
+        return new OfflineRecognizerConfig
+        {
+            FeatConfig = featConfig,
+            ModelConfig = modelConfig,
+            DecodingMethod = "greedy_search"
+        };
+    }
+
+/// <summary>
+    /// Sherpa-ONNX認識器を初期化
+    /// </summary>
+    /// <param name="modelPath">モデルパス（assetsパス or ファイルシステムパス）</param>
+    /// <param name="isFilePath">trueの場合ファイルシステムパス、falseの場合assetsパス</param>
+    public async Task<bool> InitializeAsync(string modelPath, bool isFilePath = false)
+    {
+        try
+        {
+            Log.Info(TAG, $"初期化開始 - モデルパス: {modelPath} (FilePath={isFilePath})");
+
+            // 既に実行中の音声認識を停止
+            if (_isListening)
+            {
+                Log.Info(TAG, "既存の音声認識を停止します...");
+                StopListening();
+            }
+
+            // 古いモデルと関連リソースを破棄
+            DisposeRecognizer();
+
+            InitializationProgress?.Invoke(this, new InitializationProgressEventArgs
+            {
+                Status = "モデルファイルを確認中...",
+                ProgressPercentage = 10
+            });
+
+            // モデルファイルの存在確認
+            if (!await CheckModelFilesAsync(modelPath, isFilePath))
+            {
+                string errorMsg = "モデルファイルが見つかりません";
+                Log.Error(TAG, errorMsg);
+                Error?.Invoke(this, errorMsg);
+                return false;
+            }
+
+            Log.Info(TAG, "モデルファイル確認完了");
+
+            InitializationProgress?.Invoke(this, new InitializationProgressEventArgs
+            {
+                Status = "音声認識モデルを読み込み中...",
+                ProgressPercentage = 30
+            });
+
+            // モデル設定を作成（ファイル内容から判定）
+            string pathPrefix = isFilePath ? modelPath : $"{modelPath}";
+
+            // ファイル内容で判定
+            string[] files;
+            if (isFilePath)
+            {
+                files = Directory.GetFiles(modelPath).Select(Path.GetFileName).ToArray()!;
+            }
+            else
+            {
+                files = _context.Assets?.List(modelPath) ?? Array.Empty<string>();
+            }
+
+            OfflineRecognizerConfig config;
+
+            // ファイルパターンでモデルタイプを判定
+            if (files.Any(f => f?.Equals("model.int8.onnx", StringComparison.OrdinalIgnoreCase) == true))
+            {
+                Log.Info(TAG, "モデルタイプ: SenseVoice");
+                config = CreateSenseVoiceConfig(pathPrefix);
+            }
+            else if (files.Any(f => f?.Contains("encoder") == true) &&
+                     files.Any(f => f?.Contains("decoder") == true) &&
+                     files.Any(f => f?.Contains("joiner") == true))
+            {
+                Log.Info(TAG, "モデルタイプ: Zipformer");
+                config = CreateZipformerConfig(pathPrefix);
+            }
+            else
+            {
+                Log.Info(TAG, "モデルタイプ: 判定不可、Zipformerとして扱う");
+                config = CreateZipformerConfig(pathPrefix);
+            }
+
+            Log.Info(TAG, "OfflineRecognizer作成中...");
+
+            InitializationProgress?.Invoke(this, new InitializationProgressEventArgs
+            {
+                Status = "音声認識エンジンを初期化中...",
+                ProgressPercentage = 60
+            });
+
+            // Sherpa-ONNX Android版はAssetManagerを渡すが、
+            // モデルパスに絶対パスを指定すればファイルシステムから読み込む
+            _recognizer = new OfflineRecognizer(_context.Assets, config);
+            Log.Info(TAG, "OfflineRecognizer作成完了");
+
+            InitializationProgress?.Invoke(this, new InitializationProgressEventArgs
+            {
+                Status = "マイクを初期化中...",
+                ProgressPercentage = 80
+            });
+
+            // AudioRecordの初期化
+            Log.Info(TAG, "AudioRecord初期化中...");
+            int bufferSize = AudioRecord.GetMinBufferSize(SampleRate, ChannelConfig, AudioFormat);
+            if (bufferSize <= 0)
+            {
+                string errorMsg = "AudioRecordの初期化に失敗しました";
+                Log.Error(TAG, errorMsg);
+                Error?.Invoke(this, errorMsg);
+                return false;
+            }
+
+            // バッファサイズを調整（100ms分）
+            int desiredBufferSize = SampleRate * BufferSizeInMs / 1000 * 2; // 16bit = 2 bytes
+            bufferSize = Math.Max(bufferSize, desiredBufferSize);
+
+            Log.Info(TAG, $"AudioRecord設定: SampleRate={SampleRate}, BufferSize={bufferSize}");
+
+            _audioRecord = new AudioRecord(
+                AudioSource.Mic,
+                SampleRate,
+                ChannelConfig,
+                AudioFormat,
+                bufferSize
+            );
+
+            if (_audioRecord.State != State.Initialized)
+            {
+                string errorMsg = "AudioRecordの初期化に失敗しました";
+                Log.Error(TAG, errorMsg);
+                Error?.Invoke(this, errorMsg);
+                return false;
+            }
+
+            _isInitialized = true;
+            Log.Info(TAG, "初期化完了");
+
+            InitializationProgress?.Invoke(this, new InitializationProgressEventArgs
+            {
+                Status = "初期化完了",
+                ProgressPercentage = 100
+            });
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            string errorMsg = $"初期化エラー: {ex.Message}";
+            Log.Error(TAG, errorMsg);
+            Log.Error(TAG, $"StackTrace: {ex.StackTrace}");
+            Error?.Invoke(this, errorMsg);
+
+            InitializationProgress?.Invoke(this, new InitializationProgressEventArgs
+            {
+                Status = $"エラー: {ex.Message}",
+                ProgressPercentage = 0
+            });
+
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// リアルタイム音声認識を開始
+    /// </summary>
+    public void StartListening()
+    {
+        if (!_isInitialized)
+        {
+            string errorMsg = "❌ サービスが初期化されていません";
+            Log.Error(TAG, errorMsg);
+            Error?.Invoke(this, errorMsg);
+            return;
+        }
+
+        if (_isListening)
+        {
+            Log.Warn(TAG, "⚠️ 既に録音中です");
+            return;
+        }
+
+        string verboseFlag = VerboseLoggingEnabled ? "✓詳細ログON" : "";
+        Log.Info(TAG, $"🎙️ 音声認識開始 (連続モード, チャンク={ChunkDurationSeconds}秒, スレッド=4, デコード=beam_search) {verboseFlag}");
+        _isListening = true; // ユーザーがマイクボタンをONにした
+        _audioRecord?.StartRecording();
+        RecognitionStarted?.Invoke(this, EventArgs.Empty);
+
+        // 音声処理スレッドを開始
+        _recordingThread = new Thread(ProcessAudioLoop)
+        {
+            IsBackground = true,
+            Name = "SherpaRecordingThread"
+        };
+        _recordingThread.Start();
+    }
+
+    /// <summary>
+    /// 音声認識を停止
+    /// </summary>
+    public void StopListening()
+    {
+        if (!_isListening)
+            return;
+
+        Log.Info(TAG, "🛑 音声認識停止 (ユーザーがマイクボタンをOFFにしました)");
+        _isListening = false; // ユーザーがマイクボタンをOFFにした → 自動再開しない
+        _audioRecord?.Stop();
+
+        // スレッドの終了を待機（タイムアウト短縮して即座に停止）
+        if (_recordingThread != null)
+        {
+            _recordingThread.Join(500); // 500ms で強制終了
+            _recordingThread = null;
+        }
+
+        // バッファをクリア
+        lock (_bufferLock)
+        {
+            _audioBuffer.Clear();
+            Log.Debug(TAG, "音声バッファをクリアしました");
+        }
+
+        RecognitionStopped?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 音声処理ループ（バックグラウンドスレッド）
+    /// </summary>
+    private void ProcessAudioLoop()
+    {
+        try
+        {
+            int bufferSize = SampleRate * BufferSizeInMs / 1000;
+            short[] audioBuffer = new short[bufferSize];
+            float[] floatBuffer = new float[bufferSize];
+
+            while (_isListening && _audioRecord != null)
+            {
+                // マイクから音声データを読み込み
+                int readCount = _audioRecord.Read(audioBuffer, 0, audioBuffer.Length);
+
+                if (readCount > 0)
+                {
+                    // short[] を float[] に変換（Sherpa-ONNXはfloat配列を期待）
+                    for (int i = 0; i < readCount; i++)
+                    {
+                        floatBuffer[i] = audioBuffer[i] / 32768.0f; // 正規化 [-1.0, 1.0]
+                    }
+
+                    // 音声バッファに追加
+                    lock (_bufferLock)
+                    {
+                        for (int i = 0; i < readCount; i++)
+                        {
+                            _audioBuffer.Add(floatBuffer[i]);
+                        }
+
+                        // 一定時間（ChunkDurationSeconds）分のデータが溜まったら認識実行
+                        int chunkSize = SampleRate * ChunkDurationSeconds;
+                        if (_audioBuffer.Count >= chunkSize)
+                        {
+                            // チャンクを取得（全体をコピー）
+                            var chunk = _audioBuffer.Take(chunkSize).ToArray();
+
+                            // 音声レベルの計算（デバッグ用）
+                            float maxAmp = chunk.Max(Math.Abs);
+                            float avgAmp = chunk.Average(Math.Abs);
+
+                            // スライディングウィンドウ: オーバーラップ分を残して古いデータを削除
+                            int removeCount = (int)(chunkSize * (1.0f - ChunkOverlapRatio));
+                            _audioBuffer.RemoveRange(0, removeCount);
+
+                            if (VerboseLoggingEnabled)
+                            {
+                                Log.Info(TAG, $"📊 チャンク処理: {chunk.Length}サンプル | レベル max={maxAmp:F4}, avg={avgAmp:F4} | バッファ残={_audioBuffer.Count}");
+                            }
+
+                            // 非同期で認識実行（UIスレッドをブロックしない）
+                            Task.Run(() =>
+                            {
+                                ProcessAudioChunk(chunk);
+
+                                // ユーザーがマイクボタンをONのままなら、自動で次の認識に進む
+                                if (_isListening)
+                                {
+                                    Log.Info(TAG, "🔄 連続認識: 次の認識に進みます");
+                                }
+                            });
+                        }
+                    }
+                }
+
+                // 短い待機（CPUを占有しないため）
+                Thread.Sleep(10);
+            }
+        }
+        catch (Exception ex)
+        {
+            string errorMsg = $"音声処理エラー: {ex.Message}";
+            Log.Error(TAG, errorMsg);
+            Log.Error(TAG, $"StackTrace: {ex.StackTrace}");
+            Error?.Invoke(this, errorMsg);
+        }
+    }
+
+    /// <summary>
+    /// 音声チャンクを認識
+    /// </summary>
+    private void ProcessAudioChunk(float[] audioChunk)
+    {
+        var startTime = DateTime.Now;
+        try
+        {
+            if (_recognizer == null)
+            {
+                Log.Warn(TAG, "❌ Recognizerがnullです");
+                return;
+            }
+
+            // ノイズ判定: 平均振幅で判定（スパイクノイズを除外）
+            float maxAmplitude = audioChunk.Max(Math.Abs);
+            float avgAmplitude = audioChunk.Average(Math.Abs);
+
+            const float MinAvgAmplitude = 0.01f; // 最小平均振幅（厳格な閾値）
+
+            // 判定ロジック: 平均振幅が低い場合はスキップ（スパイクノイズを除外）
+            if (avgAmplitude < MinAvgAmplitude)
+            {
+                if (VerboseLoggingEnabled)
+                {
+                    Log.Debug(TAG, $"🔇 音声レベル低 - スキップ (avg={avgAmplitude:F4} < {MinAvgAmplitude}) | ピーク={maxAmplitude:F4}");
+                }
+                return;
+            }
+
+            // スパイクノイズの検出: ピークが高いが平均が低い場合
+            if (maxAmplitude > 0.3f && avgAmplitude < 0.02f)
+            {
+                if (VerboseLoggingEnabled)
+                {
+                    Log.Debug(TAG, $"🔊 スパイクノイズ判定 - スキップ (max={maxAmplitude:F4}, avg={avgAmplitude:F4})");
+                }
+                return;
+            }
+
+            if (VerboseLoggingEnabled)
+            {
+                Log.Debug(TAG, $"🎤 音声検出 - 認識開始 (サンプル数={audioChunk.Length}, max={maxAmplitude:F4}, avg={avgAmplitude:F4})");
+            }
+
+            // OfflineStreamを作成
+            var stream = _recognizer.CreateStream();
+
+            // 音声データを送信（パラメータ順序: samples, sampleRate）
+            stream.AcceptWaveform(audioChunk, SampleRate);
+
+            // 認識実行
+            var decodeStart = DateTime.Now;
+            _recognizer.Decode(stream);
+            var decodeTime = (DateTime.Now - decodeStart).TotalMilliseconds;
+
+            // 結果を取得
+            var recognitionResult = _recognizer.GetResult(stream);
+
+            var totalTime = (DateTime.Now - startTime).TotalMilliseconds;
+
+            if (!string.IsNullOrEmpty(recognitionResult?.Text))
+            {
+                Log.Info(TAG, $"✅ 【完全結果】「{recognitionResult.Text}」");
+                if (VerboseLoggingEnabled)
+                {
+                    Log.Debug(TAG, $"   詳細: 認識={decodeTime:F0}ms, 合計={totalTime:F0}ms, サンプル数={audioChunk.Length}");
+                }
+                // 完全結果を通知
+                FinalResult?.Invoke(this, recognitionResult.Text);
+            }
+            else
+            {
+                if (VerboseLoggingEnabled)
+                {
+                    Log.Debug(TAG, $"⚠️ 認識結果なし (無音または認識失敗) (認識={decodeTime:F0}ms, 合計={totalTime:F0}ms)");
+                }
+            }
+
+            // ストリームを解放
+            stream.Dispose();
+        }
+        catch (Exception ex)
+        {
+            var totalTime = (DateTime.Now - startTime).TotalMilliseconds;
+            string errorMsg = $"❌ 認識エラー: {ex.Message} ({totalTime:F0}ms)";
+            Log.Error(TAG, errorMsg);
+            Log.Error(TAG, $"StackTrace: {ex.StackTrace}");
+            Error?.Invoke(this, errorMsg);
+        }
+    }
+
+    /// <summary>
+    /// モデルファイルの存在を確認
+    /// </summary>
+    private async Task<bool> CheckModelFilesAsync(string modelPath, bool isFilePath)
+    {
+        await Task.CompletedTask; // 非同期メソッドのため
+
+        try
+        {
+            Log.Info(TAG, $"モデルファイル確認: {modelPath}");
+
+            if (isFilePath)
+            {
+                // ファイルシステムパスのチェック
+                if (!Directory.Exists(modelPath))
+                {
+                    Log.Error(TAG, $"モデルディレクトリが存在しません: {modelPath}");
+                    return false;
+                }
+
+                string[] requiredFiles = {
+                    "encoder-epoch-99-avg-1.int8.onnx",
+                    "decoder-epoch-99-avg-1.int8.onnx",
+                    "joiner-epoch-99-avg-1.int8.onnx",
+                    "tokens.txt"
+                };
+
+                foreach (string file in requiredFiles)
+                {
+                    string filePath = System.IO.Path.Combine(modelPath, file);
+                    if (!System.IO.File.Exists(filePath))
+                    {
+                        Log.Error(TAG, $"必須ファイルが見つかりません: {filePath}");
+                        return false;
+                    }
+                    Log.Debug(TAG, $"  ✓ {file}");
+                }
+
+                Log.Info(TAG, $"すべてのファイルが存在します (FilePath)");
+                return true;
+            }
+            else
+            {
+                // assetsからモデルファイルをチェック
+                var assetFiles = _context.Assets?.List(modelPath);
+
+                if (assetFiles != null && assetFiles.Length > 0)
+                {
+                    Log.Info(TAG, $"見つかったファイル数: {assetFiles.Length}");
+                    foreach (var file in assetFiles)
+                    {
+                        Log.Debug(TAG, $"  - {file}");
+                    }
+                    return true;
+                }
+                else
+                {
+                    Log.Error(TAG, $"モデルファイルが見つかりません: {modelPath}");
+
+                    // デバッグ用: assetsのルートディレクトリを確認
+                    var rootFiles = _context.Assets?.List("");
+                    if (rootFiles != null)
+                    {
+                        Log.Info(TAG, "Assets ルートディレクトリ:");
+                        foreach (var file in rootFiles)
+                        {
+                            Log.Debug(TAG, $"  - {file}");
+                        }
+                    }
+
+                    return false;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(TAG, $"モデルファイル確認エラー: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 認識器とオーディオバッファをクリア（モデル切り替え用）
+    /// </summary>
+    private void DisposeRecognizer()
+    {
+        try
+        {
+            // 音声認識器を破棄
+            if (_recognizer != null)
+            {
+                _recognizer.Dispose();
+                _recognizer = null;
+                Log.Info(TAG, "認識器を破棄しました");
+            }
+
+            // オーディオバッファをクリア
+            lock (_bufferLock)
+            {
+                _audioBuffer.Clear();
+            }
+
+            _isInitialized = false;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(TAG, $"認識器破棄エラー: {ex.Message}");
+        }
+    }
+
+    public void Dispose()
+    {
+        StopListening();
+
+        // Sherpa-ONNXリソースを解放
+        DisposeRecognizer();
+
+        if (_audioRecord != null)
+        {
+            if (_audioRecord.State == State.Initialized)
+            {
+                _audioRecord.Stop();
+            }
+            _audioRecord.Release();
+            _audioRecord.Dispose();
+            _audioRecord = null;
+        }
+
+        _isInitialized = false;
+    }
+}

@@ -574,3 +574,33 @@ cache/
 release/
 nul
 
+# =========================================
+# Robin - Sherpa-ONNX Models (Large Files)
+# =========================================
+
+# Downloaded models directory (PC-side preparation)
+models-prepared/
+
+# Model archives (tar.bz2)
+*.tar.bz2
+
+# ONNX model files (large binary files)
+*.onnx
+
+# Sherpa-ONNX model directories (extracted)
+sherpa-onnx-*/
+
+# Model-specific patterns
+**/sherpa-onnx-sense-voice*/
+**/sherpa-onnx-zipformer*/
+**/sherpa-onnx-whisper*/
+
+# Raw resources (if models were to be bundled - currently not used)
+src_dotnet/Robin/Resources/raw/sherpa-onnx-*/
+
+# Temporary model downloads
+models-temp/
+
+# NOTE: AAR libraries in src_dotnet/Robin/libs/ are INCLUDED in git
+# These are external dependencies required for build
+

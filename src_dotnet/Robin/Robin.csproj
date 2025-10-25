@@ -14,10 +14,35 @@
     -->
     <TrimMode>full</TrimMode>
     <!-- Suppress IL2026 warnings for JSON serialization - models are explicitly preserved -->
-    <NoWarn>$(NoWarn);IL2026</NoWarn>
+    <!-- Suppress XA4301 warnings for duplicate native libraries in Sherpa-ONNX AAR -->
+    <NoWarn>$(NoWarn);IL2026;XA4301</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Xamarin.Google.Android.Material" Version="1.12.0.1" />
+    <PackageReference Include="SharpZipLib" Version="1.4.2" />
+  </ItemGroup>
+
+  <!-- Sherpa-ONNX Android Library -->
+  <ItemGroup>
+    <AndroidLibrary Include="libs\sherpa-onnx-1.12.15.aar" />
+  </ItemGroup>
+
+  <!-- Sherpa-ONNX Model Files (Conditional Assets) -->
+  <!-- Models must be pre-downloaded to models-prepared directory -->
+  <!-- Prepare with ModelPrepTool before building -->
+
+  <!-- Zipformer Japanese ReazonSpeech Model -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\models-prepared\sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01')">
+    <AndroidAsset Include="..\..\models-prepared\sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01\**\*">
+      <Link>assets\sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </AndroidAsset>
+  </ItemGroup>
+
+  <!-- SenseVoice Multilingual Model -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\models-prepared\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09')">
+    <AndroidAsset Include="..\..\models-prepared\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09\**\*">
+      <Link>assets\sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </AndroidAsset>
   </ItemGroup>
 </Project>

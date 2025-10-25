@@ -24,12 +24,25 @@ public class MainActivity : AppCompatActivity
     private RecyclerView? _recyclerView;
     private FloatingActionButton? _micButton;
     private TextView? _statusText;
+    private TextView? _modelNameText;
     private View? _swipeHint;
 
     private MessageAdapter? _messageAdapter;
     private ConversationService? _conversationService;
     private VoiceInputService? _voiceInputService;
+    private SherpaRealtimeService? _sherpaService;
     private OpenAIService? _openAIService;
+
+    // 音声認識エンジンの選択
+    private bool _useSherpaOnnx = true; // true: Sherpa-ONNX, false: Android標準
+    private string? _currentModelName = null; // 現在のモデル名
+
+    // 利用可能なモデル
+    private readonly string[] _availableModels = new[]
+    {
+        "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01",
+        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"
+    };
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
@@ -59,6 +72,7 @@ public class MainActivity : AppCompatActivity
         _recyclerView = FindViewById<RecyclerView>(Resource.Id.chat_recycler_view);
         _micButton = FindViewById<FloatingActionButton>(Resource.Id.mic_button);
         _statusText = FindViewById<TextView>(Resource.Id.status_text);
+        _modelNameText = FindViewById<TextView>(Resource.Id.model_name_text);
         _swipeHint = FindViewById(Resource.Id.swipe_hint);
     }
 
@@ -73,8 +87,193 @@ public class MainActivity : AppCompatActivity
         _voiceInputService.RecognitionResult += OnRecognitionResult;
         _voiceInputService.RecognitionError += OnRecognitionError;
 
+        // Sherpa-ONNXサービス
+        _sherpaService = new SherpaRealtimeService(this);
+        _sherpaService.RecognitionStarted += OnSherpaRecognitionStarted;
+        _sherpaService.RecognitionStopped += OnSherpaRecognitionStopped;
+        _sherpaService.FinalResult += OnSherpaFinalResult;
+        _sherpaService.Error += OnSherpaError;
+        _sherpaService.InitializationProgress += OnSherpaInitializationProgress;
+
+        // Sherpa-ONNXの非同期初期化
+        Task.Run(async () =>
+        {
+            try
+            {
+                RunOnUiThread(() =>
+                {
+                    _statusText!.Text = "Sherpa-ONNX初期化中...";
+                    _statusText!.Visibility = ViewStates.Visible;
+                });
+
+                // アセットからモデルを初期化（優先順位順）
+                string[] modelNames = new[]
+                {
+                    "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01",
+                    "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"
+                };
+
+                bool initialized = false;
+                string? successModel = null;
+
+                foreach (var modelName in modelNames)
+                {
+                    Android.Util.Log.Info("MainActivity", $"Sherpa初期化試行: {modelName}");
+                    RunOnUiThread(() =>
+                    {
+                        _statusText!.Text = $"初期化中: {modelName}";
+                    });
+
+                    try
+                    {
+                        initialized = await _sherpaService.InitializeAsync(modelName, isFilePath: false);
+                        if (initialized)
+                        {
+                            successModel = modelName;
+                            Android.Util.Log.Info("MainActivity", $"Sherpa初期化成功: {modelName}");
+                            break;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Android.Util.Log.Warn("MainActivity", $"Sherpa初期化失敗 {modelName}: {ex.Message}");
+                    }
+                }
+
+                if (initialized && successModel != null)
+                {
+                    RunOnUiThread(() =>
+                    {
+                        _statusText!.Visibility = ViewStates.Gone;
+                        _currentModelName = successModel;
+                        UpdateModelNameDisplay();
+                        ShowToast($"Sherpa-ONNX初期化完了: {successModel}");
+                    });
+                }
+                else
+                {
+                    Android.Util.Log.Error("MainActivity", "すべてのモデルで初期化失敗 - Android標準を使用");
+                    RunOnUiThread(() =>
+                    {
+                        _statusText!.Visibility = ViewStates.Gone;
+                        _currentModelName = "Android Standard (Offline)";
+                        UpdateModelNameDisplay();
+                        ShowToast("モデル初期化失敗。Android標準を使用します。");
+                        _useSherpaOnnx = false;
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Android.Util.Log.Error("MainActivity", $"Sherpa初期化エラー: {ex.Message}");
+                RunOnUiThread(() =>
+                {
+                    _statusText!.Visibility = ViewStates.Gone;
+                    _currentModelName = "Android Standard (Error)";
+                    UpdateModelNameDisplay();
+                    ShowToast("Sherpa初期化エラー。Android標準を使用します。");
+                    _useSherpaOnnx = false;
+                });
+            }
+        });
+
         // モック版: APIキーなしで動作
         _openAIService = new OpenAIService("mock-api-key");
+    }
+
+    private void UpdateModelNameDisplay()
+    {
+        if (_modelNameText != null && !string.IsNullOrEmpty(_currentModelName))
+        {
+            _modelNameText.Text = _currentModelName;
+        }
+    }
+
+    private void ShowModelSelectionDialog()
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("モデルを選択");
+
+        // 現在のモデルのインデックスを取得
+        int checkedItem = -1;
+        if (!string.IsNullOrEmpty(_currentModelName))
+        {
+            for (int i = 0; i < _availableModels.Length; i++)
+            {
+                if (_availableModels[i] == _currentModelName)
+                {
+                    checkedItem = i;
+                    break;
+                }
+            }
+        }
+
+        AndroidX.AppCompat.App.AlertDialog? dialog = null;
+        builder.SetSingleChoiceItems(_availableModels, checkedItem, (sender, e) =>
+        {
+            var selectedModel = _availableModels[e.Which];
+            LoadModel(selectedModel);
+            dialog?.Dismiss();
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) =>
+        {
+            dialog?.Dismiss();
+        });
+
+        dialog = builder.Create();
+        dialog?.Show();
+    }
+
+    private void LoadModel(string modelName)
+    {
+        if (_sherpaService == null)
+            return;
+
+        RunOnUiThread(() =>
+        {
+            _statusText!.Text = $"モデルを読み込み中: {modelName}";
+            _statusText!.Visibility = ViewStates.Visible;
+        });
+
+        Task.Run(async () =>
+        {
+            try
+            {
+                Android.Util.Log.Info("MainActivity", $"モデル読み込み開始: {modelName}");
+                bool initialized = await _sherpaService.InitializeAsync(modelName, isFilePath: false);
+
+                if (initialized)
+                {
+                    RunOnUiThread(() =>
+                    {
+                        _currentModelName = modelName;
+                        UpdateModelNameDisplay();
+                        _statusText!.Visibility = ViewStates.Gone;
+                        ShowToast($"モデル読み込み完了: {modelName}");
+                        Android.Util.Log.Info("MainActivity", $"モデル読み込み成功: {modelName}");
+                    });
+                }
+                else
+                {
+                    RunOnUiThread(() =>
+                    {
+                        _statusText!.Visibility = ViewStates.Gone;
+                        ShowToast($"モデル読み込み失敗: {modelName}");
+                        Android.Util.Log.Error("MainActivity", $"モデル読み込み失敗: {modelName}");
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                RunOnUiThread(() =>
+                {
+                    _statusText!.Visibility = ViewStates.Gone;
+                    ShowToast($"エラー: {ex.Message}");
+                    Android.Util.Log.Error("MainActivity", $"モデル読み込みエラー: {ex.Message}");
+                });
+            }
+        });
     }
 
     private void SetupRecyclerView()
@@ -100,26 +299,27 @@ public class MainActivity : AppCompatActivity
             {
                 // チャット画面 (現在の画面)
             }
+            else if (itemId == Resource.Id.nav_model_management)
+            {
+                // モデル管理画面
+                ShowModelSelectionDialog();
+            }
             else if (itemId == Resource.Id.nav_about)
             {
-                // バージョン情報 (未実装)
+                // バージョン情報
                 ShowToast("Robin v1.0.0");
+            }
+            else if (itemId == Resource.Id.nav_verbose_logging)
+            {
+                // 詳細ログの切り替え
+                SherpaRealtimeService.VerboseLoggingEnabled = !SherpaRealtimeService.VerboseLoggingEnabled;
+                var status = SherpaRealtimeService.VerboseLoggingEnabled ? "ON" : "OFF";
+                e.MenuItem.SetTitle($"詳細ログ: {status}");
+                ShowToast($"詳細ログ: {status}");
             }
 
             _drawerLayout?.CloseDrawers();
         };
-
-        // フッターの設定ボタンにクリックリスナーを設定
-        var footerView = _navigationView.FindViewById(Resource.Id.settings_button);
-        if (footerView != null)
-        {
-            footerView.Click += (sender, e) =>
-            {
-                // 設定画面 (未実装)
-                ShowToast("設定画面は未実装です");
-                _drawerLayout?.CloseDrawers();
-            };
-        }
 
         // ドロワーのスライドリスナーを設定（ノッチの表示/非表示をアニメーション）
         if (_drawerLayout != null)
@@ -135,15 +335,31 @@ public class MainActivity : AppCompatActivity
 
         _micButton.Click += (sender, e) =>
         {
-            if (_voiceInputService?.IsContinuousMode == true)
+            if (_useSherpaOnnx && _sherpaService != null)
             {
-                // 継続モード中なら停止
+                // Sherpa-ONNX使用時: 聴取状態をトグル
+                if (_sherpaService.IsListening)
+                {
+                    // 聴取中なら停止
+                    _sherpaService.StopListening();
+                    UpdateMicButtonState();
+                }
+                else
+                {
+                    // 停止中なら開始
+                    StartVoiceInput(enableContinuousMode: false);
+                    UpdateMicButtonState();
+                }
+            }
+            else if (_voiceInputService?.IsContinuousMode == true)
+            {
+                // Android標準: 継続モード中なら停止
                 _voiceInputService.StopListening();
                 UpdateMicButtonState();
             }
             else
             {
-                // 継続モードを有効にして開始
+                // Android標準: 継続モードを有効にして開始
                 StartVoiceInput(enableContinuousMode: true);
                 UpdateMicButtonState();
             }
@@ -188,7 +404,14 @@ public class MainActivity : AppCompatActivity
             return;
         }
 
-        _voiceInputService?.StartListening(enableContinuousMode);
+        if (_useSherpaOnnx && _sherpaService != null)
+        {
+            _sherpaService.StartListening();
+        }
+        else
+        {
+            _voiceInputService?.StartListening(enableContinuousMode);
+        }
     }
 
     private void OnRecognitionStarted(object? sender, EventArgs e)
@@ -215,30 +438,30 @@ public class MainActivity : AppCompatActivity
         RunOnUiThread(() =>
         {
             _conversationService?.AddUserMessage(recognizedText);
-            _statusText?.SetText(Resource.String.thinking);
-            _statusText!.Visibility = ViewStates.Visible;
+            _statusText!.Visibility = ViewStates.Gone;
         });
 
-        try
-        {
-            // モック版を使用 (実際のAPI呼び出しなし)
-            var response = await _openAIService!.SendMessageMockAsync(recognizedText);
-
-            RunOnUiThread(() =>
-            {
-                _conversationService?.AddAssistantMessage(response);
-                _statusText!.Visibility = ViewStates.Gone;
-                ScrollToBottom();
-            });
-        }
-        catch (Exception ex)
-        {
-            RunOnUiThread(() =>
-            {
-                _statusText!.Visibility = ViewStates.Gone;
-                ShowToast($"エラー: {ex.Message}");
-            });
-        }
+        // API呼び出しはなし（オフライン版のため）
+        // try
+        // {
+        //     // モック版を使用 (実際のAPI呼び出しなし)
+        //     var response = await _openAIService!.SendMessageMockAsync(recognizedText);
+        //
+        //     RunOnUiThread(() =>
+        //     {
+        //         _conversationService?.AddAssistantMessage(response);
+        //         _statusText!.Visibility = ViewStates.Gone;
+        //         ScrollToBottom();
+        //     });
+        // }
+        // catch (Exception ex)
+        // {
+        //     RunOnUiThread(() =>
+        //     {
+        //         _statusText!.Visibility = ViewStates.Gone;
+        //         ShowToast($"エラー: {ex.Message}");
+        //     });
+        // }
     }
 
     private void OnRecognitionError(object? sender, string errorMessage)
@@ -247,6 +470,65 @@ public class MainActivity : AppCompatActivity
         {
             _statusText!.Visibility = ViewStates.Gone;
             ShowToast(errorMessage);
+        });
+    }
+
+    // Sherpa-ONNXイベントハンドラー
+    private void OnSherpaRecognitionStarted(object? sender, EventArgs e)
+    {
+        RunOnUiThread(() =>
+        {
+            _statusText?.SetText(Resource.String.listening);
+            _statusText!.Visibility = ViewStates.Visible;
+            UpdateMicButtonState();
+        });
+    }
+
+    private void OnSherpaRecognitionStopped(object? sender, EventArgs e)
+    {
+        RunOnUiThread(() =>
+        {
+            _statusText!.Visibility = ViewStates.Gone;
+            UpdateMicButtonState();
+        });
+    }
+
+    private void OnSherpaFinalResult(object? sender, string recognizedText)
+    {
+        RunOnUiThread(() =>
+        {
+            _statusText!.Visibility = ViewStates.Gone;
+            _conversationService?.AddUserMessage(recognizedText);
+        });
+
+        // OpenAI API呼び出しはなし（オフライン版のため）
+        // Task.Run(async () =>
+        // {
+        //     try
+        //     {
+        //         var response = await _openAIService?.SendMessageAsync(_conversationService?.GetMessages() ?? new List<Message>());
+        //         RunOnUiThread(() =>
+        //         {
+        //             _conversationService?.AddAssistantMessage(response ?? "エラーが発生しました");
+        //             ScrollToBottom();
+        //         });
+        //     }
+        //     catch (Exception ex)
+        //     {
+        //         RunOnUiThread(() =>
+        //         {
+        //             ShowToast($"エラー: {ex.Message}");
+        //         });
+        //     }
+        // });
+    }
+
+    private void OnSherpaError(object? sender, string errorMessage)
+    {
+        RunOnUiThread(() =>
+        {
+            _statusText!.Visibility = ViewStates.Gone;
+            ShowToast($"Sherpa-ONNX: {errorMessage}");
         });
     }
 
@@ -278,20 +560,45 @@ public class MainActivity : AppCompatActivity
 
     private void UpdateMicButtonState()
     {
-        if (_micButton == null || _voiceInputService == null)
+        if (_micButton == null)
             return;
 
         RunOnUiThread(() =>
         {
-            if (_voiceInputService.IsContinuousMode)
+            bool isActive = false;
+
+            // Sherpa-ONNX使用時
+            if (_useSherpaOnnx && _sherpaService != null)
             {
-                // 継続モード中は赤色
+                isActive = _sherpaService.IsListening; // 聴取中なら赤色
+            }
+            // Android標準使用時
+            else if (_voiceInputService != null)
+            {
+                isActive = _voiceInputService.IsContinuousMode; // 継続モード中なら赤色
+            }
+
+            if (isActive)
+            {
+                // アクティブ時: 赤色 + 停止アイコン（「押すと停止される」ことを示唆）
                 _micButton.BackgroundTintList = Android.Content.Res.ColorStateList.ValueOf(Android.Graphics.Color.ParseColor("#F44336"));
+                _micButton.SetImageResource(Android.Resource.Drawable.IcMediaPause);
             }
             else
             {
-                // 通常時はプライマリカラー
+                // 非アクティブ時: 青色 + マイクアイコン（「押すとマイク入力が開始される」ことを示唆）
                 _micButton.BackgroundTintList = Android.Content.Res.ColorStateList.ValueOf(Android.Graphics.Color.ParseColor("#2196F3"));
+                // ic_btn_speak_now を ID で取得
+                int micIconId = Resources!.GetIdentifier("ic_btn_speak_now", "drawable", "android");
+                if (micIconId != 0)
+                {
+                    _micButton.SetImageResource(micIconId);
+                }
+                else
+                {
+                    // フォールバック: IcMediaPlay を使用
+                    _micButton.SetImageResource(Android.Resource.Drawable.IcMediaPlay);
+                }
             }
         });
     }
@@ -366,6 +673,17 @@ public class MainActivity : AppCompatActivity
         {
             // 状態変化時の処理（必要に応じて実装）
         }
+    }
+
+    private void OnSherpaInitializationProgress(object? sender, SherpaRealtimeService.InitializationProgressEventArgs e)
+    {
+        RunOnUiThread(() =>
+        {
+            if (_statusText != null)
+            {
+                _statusText.Text = $"{e.Status} ({e.ProgressPercentage}%)";
+            }
+        });
     }
 
     protected override void OnDestroy()

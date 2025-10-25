@@ -1,4 +1,6 @@
 <Solution>
+  <Project Path="ModelPrepTool/ModelPrepTool.csproj" />
+  <Project Path="Robin.Core/Robin.Core.csproj" />
   <Project Path="Robin/Robin.csproj">
     <Deploy />
   </Project>

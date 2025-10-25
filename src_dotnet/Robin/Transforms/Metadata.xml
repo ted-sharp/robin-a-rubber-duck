@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <!--
+    Sherpa-ONNX Javaバインディングのメタデータ変換
+    Javaのfinalize()メソッドをC#バインディングから除外
+  -->
+
+  <!-- AudioTagging -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='AudioTagging']/method[@name='finalize']" />
+
+  <!-- KeywordSpotter -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='KeywordSpotter']/method[@name='finalize']" />
+
+  <!-- OfflinePunctuation -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='OfflinePunctuation']/method[@name='finalize']" />
+
+  <!-- OfflineRecognizer -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='OfflineRecognizer']/method[@name='finalize']" />
+
+  <!-- OfflineSpeakerDiarization -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='OfflineSpeakerDiarization']/method[@name='finalize']" />
+
+  <!-- OfflineSpeechDenoiser -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='OfflineSpeechDenoiser']/method[@name='finalize']" />
+
+  <!-- OfflineStream -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='OfflineStream']/method[@name='finalize']" />
+
+  <!-- OfflineTts -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='OfflineTts']/method[@name='finalize']" />
+
+  <!-- OnlinePunctuation -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='OnlinePunctuation']/method[@name='finalize']" />
+
+  <!-- OnlineRecognizer -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='OnlineRecognizer']/method[@name='finalize']" />
+
+  <!-- OnlineStream -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='OnlineStream']/method[@name='finalize']" />
+
+  <!-- SpeakerEmbeddingExtractor -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='SpeakerEmbeddingExtractor']/method[@name='finalize']" />
+
+  <!-- SpeakerEmbeddingManager -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='SpeakerEmbeddingManager']/method[@name='finalize']" />
+
+  <!-- SpokenLanguageIdentification -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='SpokenLanguageIdentification']/method[@name='finalize']" />
+
+  <!-- Vad -->
+  <remove-node path="/api/package[@name='com.k2fsa.sherpa.onnx']/class[@name='Vad']/method[@name='finalize']" />
+</metadata>

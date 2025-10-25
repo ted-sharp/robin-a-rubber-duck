@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="モデルを選択"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="ダウンロードする音声認識モデルを選択してください。"
+        android:textSize="14sp"
+        android:layout_marginBottom="16dp" />
+
+    <!-- モデルリスト -->
+    <RadioGroup
+        android:id="@+id/radio_group_models"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp">
+        <!-- モデルは動的に追加される -->
+    </RadioGroup>
+
+    <!-- WiFi警告 -->
+    <TextView
+        android:id="@+id/text_wifi_warning_download"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="⚠️ WiFi接続が必要です"
+        android:textSize="12sp"
+        android:textColor="#F44336"
+        android:layout_marginBottom="16dp"
+        android:visibility="gone" />
+
+    <!-- ボタン群 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/button_cancel_download"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="キャンセル"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/button_start_download"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="ダウンロード" />
+
+    </LinearLayout>
+
+</LinearLayout>

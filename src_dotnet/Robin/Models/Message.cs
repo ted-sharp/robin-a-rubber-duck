@@ -1,4 +1,4 @@
-namespace Robin.Models;
+﻿namespace Robin.Models;
 
 public enum MessageRole
 {
