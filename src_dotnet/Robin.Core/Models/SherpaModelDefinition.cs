@@ -57,6 +57,43 @@ public class SherpaModelDefinition
             },
             Description = "Japanese-only model with high accuracy",
             SupportsJapanese = true
+        },
+        new SherpaModelDefinition
+        {
+            Id = "whisper-tiny",
+            Name = "Whisper Tiny (Multilingual, int8)",
+            NameJa = "Whisper Tiny (多言語、int8量子化)",
+            Url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2",
+            ArchiveFileName = "sherpa-onnx-whisper-tiny.tar.bz2",
+            FolderName = "sherpa-onnx-whisper-tiny",
+            SizeBytes = 104L * 1024 * 1024, // ~104MB (int8 quantized encoder + decoder)
+            Languages = new[] { "Japanese", "English", "Chinese", "Korean", "Spanish", "French", "German", "Italian", "Portuguese", "Dutch", "Russian", "Polish", "Turkish", "Swedish", "Norwegian", "Danish", "Finnish", "Czech", "Romanian", "Greek" },
+            RequiredFiles = new[]
+            {
+                "tiny-encoder.int8.onnx",
+                "tiny-decoder.int8.onnx",
+                "tiny-tokens.txt"
+            },
+            Description = "Fast multilingual speech recognition model based on Whisper (99 languages supported, int8 quantized)",
+            SupportsJapanese = true
+        },
+        new SherpaModelDefinition
+        {
+            Id = "nemo-parakeet-cja",
+            Name = "NeMo Parakeet CTC 0.6B Japanese (int8)",
+            NameJa = "NeMo Parakeet CTC 0.6B 日本語専用",
+            Url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8.tar.bz2",
+            ArchiveFileName = "sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8.tar.bz2",
+            FolderName = "sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8",
+            SizeBytes = 625L * 1024 * 1024, // ~625MB extracted
+            Languages = new[] { "Japanese" },
+            RequiredFiles = new[]
+            {
+                "model.int8.onnx",
+                "tokens.txt"
+            },
+            Description = "Lightweight Japanese speech recognition model trained on 35,000+ hours of ReazonSpeech v2.0. Smaller alternative to Zipformer with simpler CTC architecture",
+            SupportsJapanese = true
         }
     };
 

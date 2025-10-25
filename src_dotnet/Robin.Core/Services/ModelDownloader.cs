@@ -21,7 +21,7 @@ public class ModelDownloader
     }
 
     /// <summary>
-    /// Download and prepare model (skip if already exists)
+    /// Download and prepare Sherpa-ONNX model (skip if already exists)
     /// </summary>
     public async Task<string> DownloadAndPrepareAsync(
         SherpaModelDefinition model,
@@ -68,7 +68,99 @@ public class ModelDownloader
         return extractPath;
     }
 
+    /// <summary>
+    /// Download and prepare Qwen ONNX model from Hugging Face
+    /// </summary>
+    public async Task<string> DownloadAndPrepareAsync(
+        QwenModelDefinition model,
+        CancellationToken cancellationToken = default)
+    {
+        Directory.CreateDirectory(_outputDirectory);
+
+        var modelPath = Path.Combine(_outputDirectory, model.FolderName);
+
+        // Skip if already downloaded
+        if (Directory.Exists(modelPath) && ModelVerifier.VerifyModel(modelPath, model))
+        {
+            OnStatusChanged($"[SKIP] Model already prepared: {model.FolderName}");
+            return modelPath;
+        }
+
+        Directory.CreateDirectory(modelPath);
+
+        // Download each required file from Hugging Face
+        long totalBytes = 0;
+        long downloadedBytes = 0;
+
+        // First pass: calculate total size
+        OnStatusChanged("Checking file sizes...");
+        foreach (var file in model.RequiredFiles)
+        {
+            var fileSize = await GetFileSizeAsync(model, file, cancellationToken);
+            totalBytes += fileSize;
+        }
+
+        // Second pass: download files
+        foreach (var file in model.RequiredFiles)
+        {
+            var fileSize = await GetFileSizeAsync(model, file, cancellationToken);
+            var url = BuildHuggingFaceUrl(model, file);
+            var localPath = Path.Combine(modelPath, file);
+
+            // Create subdirectories if needed
+            var fileDir = Path.GetDirectoryName(localPath);
+            if (fileDir != null)
+            {
+                Directory.CreateDirectory(fileDir);
+            }
+
+            OnStatusChanged($"Downloading {file}...");
+
+            // Wrapper for progress tracking
+            var fileDownloadedBytes = 0L;
+            await DownloadFileAsync(
+                url,
+                localPath,
+                (args) =>
+                {
+                    // Update total progress
+                    var adjustedDownloaded = downloadedBytes + args.BytesDownloaded - fileDownloadedBytes;
+                    fileDownloadedBytes = args.BytesDownloaded;
+
+                    OnProgressChanged(new DownloadProgressEventArgs
+                    {
+                        BytesDownloaded = adjustedDownloaded,
+                        TotalBytes = totalBytes,
+                        ProgressPercentage = totalBytes > 0 ? (adjustedDownloaded * 100.0) / totalBytes : 0,
+                        SpeedMBps = args.SpeedMBps
+                    });
+                },
+                cancellationToken);
+
+            downloadedBytes += fileSize;
+        }
+
+        // Verify
+        OnStatusChanged("Verifying files...");
+        if (!ModelVerifier.VerifyModel(modelPath, model))
+        {
+            throw new InvalidOperationException($"Model verification failed: {model.Id}");
+        }
+        OnStatusChanged("Verification complete");
+
+        return modelPath;
+    }
+
     private async Task DownloadFileAsync(string url, string outputPath, CancellationToken cancellationToken)
+    {
+        await DownloadFileAsync(url, outputPath, null, cancellationToken);
+    }
+
+    private async Task DownloadFileAsync(
+        string url,
+        string outputPath,
+        Action<DownloadProgressEventArgs>? onProgress,
+        CancellationToken cancellationToken)
     {
         using var response = await _httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -95,25 +187,31 @@ public class ModelDownloader
                 var progress = totalBytes > 0 ? (double)totalBytesRead / totalBytes : 0;
                 var speedMBps = totalBytesRead / (1024.0 * 1024.0) / stopwatch.Elapsed.TotalSeconds;
 
-                OnProgressChanged(new DownloadProgressEventArgs
+                var args = new DownloadProgressEventArgs
                 {
                     BytesDownloaded = totalBytesRead,
                     TotalBytes = totalBytes,
                     ProgressPercentage = progress * 100,
                     SpeedMBps = speedMBps
-                });
+                };
+
+                onProgress?.Invoke(args);
+                OnProgressChanged(args);
 
                 stopwatch.Restart();
             }
         }
 
-        OnProgressChanged(new DownloadProgressEventArgs
+        var finalArgs = new DownloadProgressEventArgs
         {
             BytesDownloaded = totalBytesRead,
             TotalBytes = totalBytes,
             ProgressPercentage = 100,
             SpeedMBps = 0
-        });
+        };
+
+        onProgress?.Invoke(finalArgs);
+        OnProgressChanged(finalArgs);
     }
 
     private async Task ExtractArchiveAsync(string archivePath, string outputDirectory, CancellationToken cancellationToken)
@@ -141,6 +239,33 @@ public class ModelDownloader
             var error = await process.StandardError.ReadToEndAsync(cancellationToken);
             throw new InvalidOperationException($"tar extraction failed: {error}");
         }
+    }
+
+    private async Task<long> GetFileSizeAsync(QwenModelDefinition model, string filePath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var url = BuildHuggingFaceUrl(model, filePath);
+            using var request = new HttpRequestMessage(HttpMethod.Head, url);
+            using var response = await _httpClient.SendAsync(request, cancellationToken);
+
+            if (response.IsSuccessStatusCode)
+            {
+                return response.Content.Headers.ContentLength ?? 0;
+            }
+        }
+        catch
+        {
+            // Fallback: assume estimated size if HEAD request fails
+        }
+
+        return 0;
+    }
+
+    private string BuildHuggingFaceUrl(QwenModelDefinition model, string filePath)
+    {
+        // https://huggingface.co/{repo}/resolve/main/{filepath}
+        return $"https://huggingface.co/{model.RepositoryPath}/resolve/main/{filePath}";
     }
 
     private void OnProgressChanged(DownloadProgressEventArgs e) => ProgressChanged?.Invoke(this, e);

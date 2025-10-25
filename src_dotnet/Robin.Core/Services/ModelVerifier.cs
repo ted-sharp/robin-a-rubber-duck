@@ -8,9 +8,31 @@ namespace Robin.Core.Services;
 public static class ModelVerifier
 {
     /// <summary>
-    /// Verify that all required model files exist
+    /// Verify that all required Sherpa-ONNX model files exist
     /// </summary>
     public static bool VerifyModel(string modelPath, SherpaModelDefinition model)
+    {
+        if (!Directory.Exists(modelPath))
+        {
+            return false;
+        }
+
+        foreach (var requiredFile in model.RequiredFiles)
+        {
+            var filePath = Path.Combine(modelPath, requiredFile);
+            if (!File.Exists(filePath))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Verify that all required Qwen ONNX model files exist
+    /// </summary>
+    public static bool VerifyModel(string modelPath, QwenModelDefinition model)
     {
         if (!Directory.Exists(modelPath))
         {
