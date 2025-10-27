@@ -32,6 +32,7 @@ public class MainActivity : AppCompatActivity
     private VoiceInputService? _voiceInputService;
     private SherpaRealtimeService? _sherpaService;
     private OpenAIService? _openAIService;
+    private SettingsService? _settingsService;
 
     // 音声認識エンジンの選択
     private bool _useSherpaOnnx = true; // true: Sherpa-ONNX, false: Android標準
@@ -176,8 +177,33 @@ public class MainActivity : AppCompatActivity
             }
         });
 
-        // モック版: APIキーなしで動作
-        _openAIService = new OpenAIService("mock-api-key");
+        // 設定サービス初期化
+        _settingsService = new SettingsService(this);
+        var lmStudioSettings = _settingsService.LoadLMStudioSettings();
+
+        // LM Studio有効化チェック
+        if (lmStudioSettings.IsEnabled && !string.IsNullOrWhiteSpace(lmStudioSettings.ModelName))
+        {
+            try
+            {
+                // LM Studio APIを使用
+                _openAIService = new OpenAIService(lmStudioSettings.Endpoint, lmStudioSettings.ModelName, isLMStudio: true);
+                Android.Util.Log.Info("MainActivity", $"LM Studio初期化: {lmStudioSettings.Endpoint}");
+                ShowToast($"LM Studio接続: {lmStudioSettings.ModelName}");
+            }
+            catch (Exception ex)
+            {
+                Android.Util.Log.Error("MainActivity", $"LM Studio初期化失敗: {ex.Message}");
+                // フォールバック: モック版
+                _openAIService = new OpenAIService("mock-api-key");
+                ShowToast("LM Studio接続失敗。モック版を使用します。");
+            }
+        }
+        else
+        {
+            // モック版: APIキーなしで動作
+            _openAIService = new OpenAIService("mock-api-key");
+        }
     }
 
     private void UpdateModelNameDisplay()
@@ -402,6 +428,12 @@ public class MainActivity : AppCompatActivity
                 // モデル管理画面
                 ShowModelSelectionDialog();
             }
+            else if (itemId == Resource.Id.nav_settings)
+            {
+                // LM Studio設定画面
+                var intent = new Android.Content.Intent(this, typeof(SettingsActivity));
+                StartActivity(intent);
+            }
             else if (itemId == Resource.Id.nav_about)
             {
                 // バージョン情報
@@ -466,11 +498,31 @@ public class MainActivity : AppCompatActivity
 
     private void CheckPermissions()
     {
+        var permissionsToRequest = new List<string>();
+
+        // RECORD_AUDIO権限の確認
         if (ContextCompat.CheckSelfPermission(this, Android.Manifest.Permission.RecordAudio) != Permission.Granted)
+        {
+            permissionsToRequest.Add(Android.Manifest.Permission.RecordAudio);
+        }
+
+        // INTERNET権限の確認
+        if (ContextCompat.CheckSelfPermission(this, Android.Manifest.Permission.Internet) != Permission.Granted)
+        {
+            permissionsToRequest.Add(Android.Manifest.Permission.Internet);
+        }
+
+        // ACCESS_NETWORK_STATE権限の確認
+        if (ContextCompat.CheckSelfPermission(this, Android.Manifest.Permission.AccessNetworkState) != Permission.Granted)
+        {
+            permissionsToRequest.Add(Android.Manifest.Permission.AccessNetworkState);
+        }
+
+        if (permissionsToRequest.Count > 0)
         {
             ActivityCompat.RequestPermissions(
                 this,
-                new[] { Android.Manifest.Permission.RecordAudio },
+                permissionsToRequest.ToArray(),
                 RequestRecordAudioPermission
             );
         }
@@ -482,22 +534,38 @@ public class MainActivity : AppCompatActivity
 
         if (requestCode == RequestRecordAudioPermission)
         {
-            if (grantResults.Length > 0 && grantResults[0] == Permission.Granted)
+            var allGranted = grantResults.All(g => g == Permission.Granted);
+
+            if (allGranted)
             {
-                ShowToast("マイクの使用を許可しました");
+                var permissionNames = string.Join(", ", permissions);
+                ShowToast($"権限を許可しました: {permissionNames}");
+                Android.Util.Log.Info("MainActivity", $"権限許可完了: {permissionNames}");
             }
             else
             {
-                ShowToast("マイクの使用許可が必要です");
+                var deniedPermissions = permissions.Where((p, i) => grantResults[i] != Permission.Granted).ToArray();
+                var deniedNames = string.Join(", ", deniedPermissions.Select(p => p.Split('.').Last()));
+                ShowToast($"権限が必要です: {deniedNames}");
+                Android.Util.Log.Warn("MainActivity", $"権限拒否: {string.Join(", ", deniedPermissions)}");
             }
         }
     }
 
     private void StartVoiceInput(bool enableContinuousMode = false)
     {
+        // RECORD_AUDIO権限確認
         if (ContextCompat.CheckSelfPermission(this, Android.Manifest.Permission.RecordAudio) != Permission.Granted)
         {
             ShowToast(GetString(Resource.String.permission_required));
+            CheckPermissions();
+            return;
+        }
+
+        // INTERNET権限確認
+        if (ContextCompat.CheckSelfPermission(this, Android.Manifest.Permission.Internet) != Permission.Granted)
+        {
+            ShowToast("ネットワーク通信に必要な権限がありません");
             CheckPermissions();
             return;
         }
@@ -536,30 +604,42 @@ public class MainActivity : AppCompatActivity
         RunOnUiThread(() =>
         {
             _conversationService?.AddUserMessage(recognizedText);
-            _statusText!.Visibility = ViewStates.Gone;
+            _statusText!.Text = "レスポンス待機中...";
+            _statusText!.Visibility = ViewStates.Visible;
         });
 
-        // API呼び出しはなし（オフライン版のため）
-        // try
-        // {
-        //     // モック版を使用 (実際のAPI呼び出しなし)
-        //     var response = await _openAIService!.SendMessageMockAsync(recognizedText);
-        //
-        //     RunOnUiThread(() =>
-        //     {
-        //         _conversationService?.AddAssistantMessage(response);
-        //         _statusText!.Visibility = ViewStates.Gone;
-        //         ScrollToBottom();
-        //     });
-        // }
-        // catch (Exception ex)
-        // {
-        //     RunOnUiThread(() =>
-        //     {
-        //         _statusText!.Visibility = ViewStates.Gone;
-        //         ShowToast($"エラー: {ex.Message}");
-        //     });
-        // }
+        // LLMレスポンスを取得
+        try
+        {
+            if (_openAIService == null || _conversationService == null)
+            {
+                RunOnUiThread(() =>
+                {
+                    _statusText!.Visibility = ViewStates.Gone;
+                    ShowToast("サービスが初期化されていません");
+                });
+                return;
+            }
+
+            var messages = _conversationService.GetMessages();
+            var response = await _openAIService.SendMessageAsync(messages);
+
+            RunOnUiThread(() =>
+            {
+                _conversationService.AddAssistantMessage(response);
+                _statusText!.Visibility = ViewStates.Gone;
+                ScrollToBottom();
+            });
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error("MainActivity", $"LLM応答エラー: {ex.Message}");
+            RunOnUiThread(() =>
+            {
+                _statusText!.Visibility = ViewStates.Gone;
+                ShowToast($"エラー: {ex.Message}");
+            });
+        }
     }
 
     private void OnRecognitionError(object? sender, string errorMessage)
@@ -595,30 +675,46 @@ public class MainActivity : AppCompatActivity
     {
         RunOnUiThread(() =>
         {
-            _statusText!.Visibility = ViewStates.Gone;
             _conversationService?.AddUserMessage(recognizedText);
+            _statusText!.Text = "レスポンス待機中...";
+            _statusText!.Visibility = ViewStates.Visible;
         });
 
-        // OpenAI API呼び出しはなし（オフライン版のため）
-        // Task.Run(async () =>
-        // {
-        //     try
-        //     {
-        //         var response = await _openAIService?.SendMessageAsync(_conversationService?.GetMessages() ?? new List<Message>());
-        //         RunOnUiThread(() =>
-        //         {
-        //             _conversationService?.AddAssistantMessage(response ?? "エラーが発生しました");
-        //             ScrollToBottom();
-        //         });
-        //     }
-        //     catch (Exception ex)
-        //     {
-        //         RunOnUiThread(() =>
-        //         {
-        //             ShowToast($"エラー: {ex.Message}");
-        //         });
-        //     }
-        // });
+        // LLMレスポンス取得（非同期）
+        Task.Run(async () =>
+        {
+            try
+            {
+                if (_openAIService == null || _conversationService == null)
+                {
+                    RunOnUiThread(() =>
+                    {
+                        _statusText!.Visibility = ViewStates.Gone;
+                        ShowToast("サービスが初期化されていません");
+                    });
+                    return;
+                }
+
+                var messages = _conversationService.GetMessages();
+                var response = await _openAIService.SendMessageAsync(messages);
+
+                RunOnUiThread(() =>
+                {
+                    _conversationService.AddAssistantMessage(response ?? "エラーが発生しました");
+                    _statusText!.Visibility = ViewStates.Gone;
+                    ScrollToBottom();
+                });
+            }
+            catch (Exception ex)
+            {
+                Android.Util.Log.Error("MainActivity", $"LLM応答エラー: {ex.Message}");
+                RunOnUiThread(() =>
+                {
+                    _statusText!.Visibility = ViewStates.Gone;
+                    ShowToast($"エラー: {ex.Message}");
+                });
+            }
+        });
     }
 
     private void OnSherpaError(object? sender, string errorMessage)

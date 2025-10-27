@@ -11,6 +11,10 @@
             android:icon="@android:drawable/ic_menu_manage"
             android:title="@string/menu_model_management" />
         <item
+            android:id="@+id/nav_settings"
+            android:icon="@android:drawable/ic_menu_preferences"
+            android:title="LM Studio設定" />
+        <item
             android:id="@+id/nav_about"
             android:icon="@android:drawable/ic_menu_info_details"
             android:title="@string/menu_about" />

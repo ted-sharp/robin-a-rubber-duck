@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@android:color/white">
+
+    <!-- ツールバー的なタイトル -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="16dp">
+
+        <Button
+            android:id="@+id/settings_back_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="戻る"
+            android:background="?attr/selectableItemBackground" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="LM Studio設定"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/black"
+            android:layout_marginStart="16dp" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- LM Studio有効化チェックボックス -->
+            <CheckBox
+                android:id="@+id/lm_studio_enabled_checkbox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="LM Studio を有効にする"
+                android:textSize="16sp"
+                android:padding="12dp" />
+
+            <!-- エンドポイント設定 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="16dp"
+                android:padding="12dp"
+                android:background="#F5F5F5">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="エンドポイント"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@android:color/black"
+                    android:layout_marginBottom="4dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="LM Studio APIのベースURL (例: http://localhost:1234)"
+                    android:textSize="12sp"
+                    android:textColor="#888888"
+                    android:layout_marginBottom="8dp" />
+
+                <EditText
+                    android:id="@+id/endpoint_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="http://192.168.0.7:1234"
+                    android:text="http://192.168.0.7:1234"
+                    android:inputType="text"
+                    android:padding="8dp"
+                    android:background="@android:drawable/edit_text"
+                    android:textColor="@android:color/black"
+                    android:textColorHint="#CCCCCC" />
+            </LinearLayout>
+
+            <!-- モデル名設定 -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="16dp"
+                android:padding="12dp"
+                android:background="#F5F5F5">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="モデル名"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="@android:color/black"
+                    android:layout_marginBottom="4dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="LM Studio で読み込んだモデル名"
+                    android:textSize="12sp"
+                    android:textColor="#888888"
+                    android:layout_marginBottom="8dp" />
+
+                <EditText
+                    android:id="@+id/model_name_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="モデル名を入力"
+                    android:text="openai/gpt-oss-20b"
+                    android:inputType="text"
+                    android:padding="8dp"
+                    android:background="@android:drawable/edit_text"
+                    android:textColor="@android:color/black"
+                    android:textColorHint="#CCCCCC" />
+            </LinearLayout>
+
+            <!-- 情報パネル -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="16dp"
+                android:padding="12dp"
+                android:background="#E8F4F8"
+                android:layout_marginStart="0dp"
+                android:layout_marginEnd="0dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ℹ️ 使い方"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#1976D2"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="1. PCで LM Studio を起動\n2. モデルを読み込む\n3. APIサーバーを起動\n4. このアプリでエンドポイントとモデル名を設定\n5. &quot;保存&quot; をタップ"
+                    android:textSize="12sp"
+                    android:textColor="#333333"
+                    android:lineSpacingMultiplier="1.4" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- 保存ボタン -->
+    <Button
+        android:id="@+id/save_button"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="保存"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:padding="12dp"
+        android:layout_marginTop="16dp"
+        android:background="#2196F3"
+        android:textColor="@android:color/white" />
+
+</LinearLayout>

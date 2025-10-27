@@ -1,6 +1,7 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
+using Android.Util;
 using Robin.Models;
 
 namespace Robin.Services;
@@ -10,17 +11,40 @@ public class OpenAIService
     private readonly HttpClient _httpClient;
     private readonly string _apiKey;
     private readonly string _model;
+    private readonly string _baseAddress;
 
     public OpenAIService(string apiKey, string model = "gpt-4")
     {
         _apiKey = apiKey;
         _model = model;
+        _baseAddress = "https://api.openai.com/v1/";
         _httpClient = new HttpClient
         {
-            BaseAddress = new Uri("https://api.openai.com/v1/"),
+            BaseAddress = new Uri(_baseAddress),
             Timeout = TimeSpan.FromSeconds(60)
         };
         _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
+    }
+
+    // LM Studio互換API用コンストラクタ
+    public OpenAIService(string endpoint, string model, bool isLMStudio)
+    {
+        _apiKey = "lm-studio"; // LM StudioはAPIキー不要
+        _model = model;
+        _baseAddress = endpoint.TrimEnd('/') + "/v1/";
+        _httpClient = new HttpClient
+        {
+            BaseAddress = new Uri(_baseAddress),
+            Timeout = TimeSpan.FromSeconds(60)
+        };
+        // LM Studioの場合はAuthorizationヘッダーは不要
+        if (!isLMStudio)
+        {
+            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
+        }
+
+        // デバッグログ
+        Log.Info("OpenAIService", $"初期化完了 - BaseAddress: {_baseAddress}, Model: {_model}, IsLMStudio: {isLMStudio}");
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "JSON models are preserved")]
@@ -28,28 +52,50 @@ public class OpenAIService
     {
         try
         {
+            Log.Info("OpenAIService", $"リクエスト開始 - URL: {_httpClient.BaseAddress}chat/completions, メッセージ数: {conversationHistory.Count}");
+
             var request = BuildRequest(conversationHistory);
+            Log.Debug("OpenAIService", $"リクエストボディ作成完了");
+
             var response = await _httpClient.PostAsync("chat/completions", request);
+            Log.Info("OpenAIService", $"レスポンス受信 - Status: {response.StatusCode}");
 
             if (!response.IsSuccessStatusCode)
             {
                 var errorContent = await response.Content.ReadAsStringAsync();
+                Log.Error("OpenAIService", $"APIエラー ({response.StatusCode}): {errorContent}");
                 throw new HttpRequestException($"API Error ({response.StatusCode}): {errorContent}");
             }
 
             var responseContent = await response.Content.ReadAsStringAsync();
+            Log.Debug("OpenAIService", $"レスポンス内容: {responseContent.Substring(0, Math.Min(200, responseContent.Length))}...");
+
             var openAIResponse = JsonSerializer.Deserialize<OpenAIResponse>(responseContent);
 
             if (openAIResponse?.Choices == null || openAIResponse.Choices.Count == 0)
             {
+                Log.Error("OpenAIService", "APIからの応答が空です");
                 throw new InvalidOperationException("APIからの応答が空です");
             }
 
-            return openAIResponse.Choices[0].Message.Content;
+            var result = openAIResponse.Choices[0].Message.Content;
+            Log.Info("OpenAIService", $"レスポンス解析成功: {result.Substring(0, Math.Min(100, result.Length))}...");
+            return result;
         }
-        catch (TaskCanceledException)
+        catch (TaskCanceledException ex)
         {
+            Log.Error("OpenAIService", $"タイムアウト: {ex.Message}");
             throw new TimeoutException("APIリクエストがタイムアウトしました");
+        }
+        catch (HttpRequestException ex)
+        {
+            Log.Error("OpenAIService", $"HTTP通信エラー: {ex.Message}");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("OpenAIService", $"予期しないエラー: {ex.GetType().Name} - {ex.Message}");
+            throw;
         }
     }
 

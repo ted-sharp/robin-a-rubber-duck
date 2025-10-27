@@ -28,6 +28,11 @@
     <AndroidLibrary Include="libs\sherpa-onnx-1.12.15.aar" />
   </ItemGroup>
 
+  <!-- Network Security Configuration for Cleartext HTTP (LM Studio) -->
+  <ItemGroup>
+    <AndroidResource Include="Resources\xml\network_security_config.xml" />
+  </ItemGroup>
+
   <!-- Sherpa-ONNX Model Files (Conditional Assets) -->
   <!-- Models must be pre-downloaded to models-prepared directory -->
   <!-- Prepare with ModelPrepTool before building -->
