@@ -13,6 +13,7 @@ public class OpenAIService
     private readonly string _model;
     private readonly string _baseAddress;
     private readonly string _provider; // "openai" or "lm-studio"
+    private string _systemPrompt = SystemPrompts.GetSystemPrompt(SystemPrompts.PromptType.Conversation);
 
     /// <summary>
     /// OpenAI APIを使用して初期化
@@ -148,11 +149,22 @@ public class OpenAIService
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "JSON models are preserved")]
     private HttpContent BuildRequest(List<Message> conversationHistory)
     {
-        var apiMessages = conversationHistory.Select(m => new ApiMessage
+        var apiMessages = new List<ApiMessage>
+        {
+            // システムプロンプトを最初に追加
+            new ApiMessage
+            {
+                Role = "system",
+                Content = _systemPrompt
+            }
+        };
+
+        // 会話履歴を追加
+        apiMessages.AddRange(conversationHistory.Select(m => new ApiMessage
         {
             Role = m.Role == MessageRole.User ? "user" : "assistant",
             Content = m.Content
-        }).ToList();
+        }));
 
         var request = new OpenAIRequest
         {
@@ -164,6 +176,29 @@ public class OpenAIService
         var json = JsonSerializer.Serialize(request);
         return new StringContent(json, Encoding.UTF8, "application/json");
     }
+
+    /// <summary>
+    /// システムプロンプトを設定
+    /// </summary>
+    public void SetSystemPrompt(SystemPrompts.PromptType promptType)
+    {
+        _systemPrompt = SystemPrompts.GetSystemPrompt(promptType);
+        Log.Info("OpenAIService", $"システムプロンプトを変更: {promptType}");
+    }
+
+    /// <summary>
+    /// システムプロンプトをカスタム文字列で設定
+    /// </summary>
+    public void SetSystemPrompt(string customPrompt)
+    {
+        _systemPrompt = customPrompt;
+        Log.Info("OpenAIService", "システムプロンプトをカスタム文字列で設定");
+    }
+
+    /// <summary>
+    /// 現在のシステムプロンプトを取得
+    /// </summary>
+    public string GetSystemPrompt() => _systemPrompt;
 
     // モック用: APIキーなしでテスト応答を返す
     public async Task<string> SendMessageMockAsync(string userMessage)

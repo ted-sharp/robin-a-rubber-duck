@@ -5,23 +5,21 @@
     android:layout_height="wrap_content"
     android:orientation="horizontal"
     android:gravity="start"
-    android:padding="8dp">
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp"
+    android:paddingStart="8dp"
+    android:paddingEnd="8dp">
 
-    <!-- Robin icon -->
-    <ImageView
-        android:id="@+id/ai_avatar"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_marginEnd="8dp"
-        android:src="@drawable/robin_icon"
-        android:contentDescription="@string/robin_avatar_desc" />
-
+    <!-- メッセージ枠 -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginEnd="64dp"
         android:orientation="vertical"
-        android:padding="12dp"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
         android:background="@color/light_gray"
         android:elevation="2dp">
 
@@ -29,18 +27,22 @@
             android:id="@+id/ai_message_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="16sp"
+            android:textSize="15sp"
             android:textColor="@color/black"
-            android:text="AI response" />
+            android:text="AI response"
+            android:lineSpacingExtra="1sp" />
 
-        <TextView
-            android:id="@+id/ai_message_time"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:textSize="12sp"
-            android:textColor="@color/gray"
-            android:text="12:01" />
     </LinearLayout>
+
+    <!-- 時刻（右側）-->
+    <TextView
+        android:id="@+id/ai_message_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="bottom"
+        android:textSize="11sp"
+        android:textColor="@color/gray"
+        android:text="12:01"
+        android:layout_marginStart="6dp" />
 
 </LinearLayout>

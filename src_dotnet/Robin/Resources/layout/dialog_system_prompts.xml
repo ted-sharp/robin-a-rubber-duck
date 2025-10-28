@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- タイトル -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="システムプロンプト設定"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:paddingBottom="16dp" />
+
+        <!-- カスタムプロンプト使用フラグ -->
+        <CheckBox
+            android:id="@+id/use_custom_prompts_checkbox"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="カスタムプロンプトを使用"
+            android:paddingBottom="16dp" />
+
+        <!-- Conversation プロンプト設定 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Conversation プロンプト"
+                android:textStyle="bold"
+                android:paddingBottom="8dp" />
+
+            <EditText
+                android:id="@+id/conversation_prompt_input"
+                android:layout_width="match_parent"
+                android:layout_height="150dp"
+                android:gravity="top|start"
+                android:hint="通常の会話用プロンプト..."
+                android:inputType="textMultiLine"
+                android:textSize="12sp"
+                android:padding="8dp"
+                android:background="@drawable/edit_text_border" />
+
+            <Button
+                android:id="@+id/reset_conversation_prompt_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="デフォルトにリセット"
+                android:layout_marginTop="8dp" />
+
+        </LinearLayout>
+
+        <!-- SemanticValidation プロンプト設定 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingBottom="16dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="SemanticValidation プロンプト"
+                android:textStyle="bold"
+                android:paddingBottom="8dp" />
+
+            <EditText
+                android:id="@+id/semantic_validation_prompt_input"
+                android:layout_width="match_parent"
+                android:layout_height="150dp"
+                android:gravity="top|start"
+                android:hint="意味検証用プロンプト..."
+                android:inputType="textMultiLine"
+                android:textSize="12sp"
+                android:padding="8dp"
+                android:background="@drawable/edit_text_border" />
+
+            <Button
+                android:id="@+id/reset_semantic_validation_prompt_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="デフォルトにリセット"
+                android:layout_marginTop="8dp" />
+
+        </LinearLayout>
+
+        <!-- ボタン行 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="end"
+            android:paddingTop="16dp">
+
+            <Button
+                android:id="@+id/cancel_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="キャンセル"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="8dp" />
+
+            <Button
+                android:id="@+id/save_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="保存"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="8dp"
+                android:layout_marginStart="8dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</ScrollView>

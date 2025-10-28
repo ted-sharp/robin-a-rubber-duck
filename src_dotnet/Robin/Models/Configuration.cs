@@ -18,6 +18,9 @@ public class Configuration
 
     [JsonPropertyName("otherSettings")]
     public OtherSettings? OtherSettings { get; set; }
+
+    [JsonPropertyName("systemPromptSettings")]
+    public SystemPromptSettings? SystemPromptSettings { get; set; }
 }
 
 /// <summary>
@@ -113,4 +116,29 @@ public class OtherSettings
 
     [JsonPropertyName("theme")]
     public string? Theme { get; set; }
+}
+
+/// <summary>
+/// システムプロンプト関連の設定
+/// Conversation プロンプトと SemanticValidation プロンプトをカスタマイズ可能
+/// </summary>
+public class SystemPromptSettings
+{
+    [JsonPropertyName("conversationPrompt")]
+    public string? ConversationPrompt { get; set; }
+
+    [JsonPropertyName("semanticValidationPrompt")]
+    public string? SemanticValidationPrompt { get; set; }
+
+    [JsonPropertyName("useCustomPrompts")]
+    public bool UseCustomPrompts { get; set; } = false;
+
+    public SystemPromptSettings() { }
+
+    public SystemPromptSettings(string? conversationPrompt = null, string? semanticValidationPrompt = null, bool useCustomPrompts = false)
+    {
+        ConversationPrompt = conversationPrompt;
+        SemanticValidationPrompt = semanticValidationPrompt;
+        UseCustomPrompts = useCustomPrompts;
+    }
 }

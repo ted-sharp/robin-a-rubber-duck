@@ -33,11 +33,16 @@ public class MainActivity : AppCompatActivity
     private SherpaRealtimeService? _sherpaService;
     private OpenAIService? _openAIService;
     private SettingsService? _settingsService;
+    private RecognizedInputBuffer? _inputBuffer;
+    private SemanticValidationService? _semanticValidationService;
 
     // 音声認識エンジンの選択
     private bool _useSherpaOnnx = true; // true: Sherpa-ONNX, false: Android標準
     private string? _currentModelName = null; // 現在のモデル名
     private string _selectedLanguage = "ja"; // 選択言語（デフォルト: 日本語）
+
+    // 処理状態の追跡
+    private RobinProcessingState _currentProcessingState = RobinProcessingState.Idle;
 
     // 利用可能なモデル
     private readonly string[] _availableModels = new[]
@@ -122,6 +127,10 @@ public class MainActivity : AppCompatActivity
 
     private void InitializeServices()
     {
+        // バッファの初期化
+        _inputBuffer = new RecognizedInputBuffer(timeoutMs: 2000); // 2秒のタイムアウト
+        _inputBuffer.BufferReady += OnInputBufferReady;
+
         _conversationService = new ConversationService(this);
         _conversationService.MessageAdded += OnMessageAdded;
 
@@ -258,6 +267,48 @@ public class MainActivity : AppCompatActivity
         {
             // モック版: APIキーなしで動作
             _openAIService = new OpenAIService("mock-api-key");
+        }
+
+        // セマンティック検証サービスの初期化
+        _semanticValidationService = new SemanticValidationService(_openAIService);
+
+        // システムプロンプト設定を読み込んで適用
+        ApplySystemPromptSettings();
+    }
+
+    /// <summary>
+    /// 保存されているシステムプロンプト設定を読み込んで OpenAIService に適用
+    /// </summary>
+    private void ApplySystemPromptSettings()
+    {
+        if (_settingsService == null || _openAIService == null) return;
+
+        try
+        {
+            var promptSettings = _settingsService.LoadSystemPromptSettings();
+
+            if (promptSettings.UseCustomPrompts)
+            {
+                // カスタムプロンプトを使用
+                if (!string.IsNullOrEmpty(promptSettings.ConversationPrompt))
+                {
+                    _openAIService.SetSystemPrompt(promptSettings.ConversationPrompt);
+                    Android.Util.Log.Info("MainActivity", "カスタム Conversation プロンプトを適用");
+                }
+
+                // SemanticValidationService もカスタムプロンプトを認識するように設定
+                // （SemanticValidationService 内部で自動的に処理される）
+            }
+            else
+            {
+                // デフォルトプロンプトを使用
+                _openAIService.SetSystemPrompt(SystemPrompts.PromptType.Conversation);
+                Android.Util.Log.Info("MainActivity", "デフォルト Conversation プロンプトを適用");
+            }
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Warn("MainActivity", $"システムプロンプト設定の適用に失敗: {ex.Message}");
         }
     }
 
@@ -481,6 +532,12 @@ public class MainActivity : AppCompatActivity
                 var intent = new Android.Content.Intent(this, typeof(SettingsActivity));
                 StartActivity(intent);
             }
+            else if (itemId == Resource.Id.nav_system_prompts)
+            {
+                // システムプロンプト設定画面
+                var intent = new Android.Content.Intent(this, typeof(SystemPromptsActivity));
+                StartActivity(intent);
+            }
             else if (itemId == Resource.Id.nav_about)
             {
                 // バージョン情報とモデル情報
@@ -653,45 +710,14 @@ public class MainActivity : AppCompatActivity
 
     private async void OnRecognitionResult(object? sender, string recognizedText)
     {
-        RunOnUiThread(() =>
-        {
-            _conversationService?.AddUserMessage(recognizedText);
-            _statusText!.Text = "レスポンス待機中...";
-            _statusText!.Visibility = ViewStates.Visible;
-        });
+        // 処理状態を更新：読み取り中
+        UpdateProcessingState(RobinProcessingState.ReadingAudio, recognizedText);
 
-        // LLMレスポンスを取得
-        try
-        {
-            if (_openAIService == null || _conversationService == null)
-            {
-                RunOnUiThread(() =>
-                {
-                    _statusText!.Visibility = ViewStates.Gone;
-                    ShowToast("サービスが初期化されていません");
-                });
-                return;
-            }
+        // バッファに認識結果を追加（ウォッチドッグで処理される）
+        _inputBuffer?.AddRecognition(recognizedText);
 
-            var messages = _conversationService.GetMessages();
-            var response = await _openAIService.SendMessageAsync(messages);
-
-            RunOnUiThread(() =>
-            {
-                _conversationService.AddAssistantMessage(response);
-                _statusText!.Visibility = ViewStates.Gone;
-                ScrollToBottom();
-            });
-        }
-        catch (Exception ex)
-        {
-            Android.Util.Log.Error("MainActivity", $"LLM応答エラー: {ex.Message}");
-            RunOnUiThread(() =>
-            {
-                _statusText!.Visibility = ViewStates.Gone;
-                ShowToast($"エラー: {ex.Message}");
-            });
-        }
+        // 処理状態を更新：バッファ待機中
+        UpdateProcessingState(RobinProcessingState.WaitingForBuffer);
     }
 
     private void OnRecognitionError(object? sender, string errorMessage)
@@ -725,48 +751,14 @@ public class MainActivity : AppCompatActivity
 
     private void OnSherpaFinalResult(object? sender, string recognizedText)
     {
-        RunOnUiThread(() =>
-        {
-            _conversationService?.AddUserMessage(recognizedText);
-            _statusText!.Text = "レスポンス待機中...";
-            _statusText!.Visibility = ViewStates.Visible;
-        });
+        // 処理状態を更新：読み取り中
+        UpdateProcessingState(RobinProcessingState.ReadingAudio, recognizedText);
 
-        // LLMレスポンス取得（非同期）
-        Task.Run(async () =>
-        {
-            try
-            {
-                if (_openAIService == null || _conversationService == null)
-                {
-                    RunOnUiThread(() =>
-                    {
-                        _statusText!.Visibility = ViewStates.Gone;
-                        ShowToast("サービスが初期化されていません");
-                    });
-                    return;
-                }
+        // バッファに認識結果を追加（ウォッチドッグで処理される）
+        _inputBuffer?.AddRecognition(recognizedText);
 
-                var messages = _conversationService.GetMessages();
-                var response = await _openAIService.SendMessageAsync(messages);
-
-                RunOnUiThread(() =>
-                {
-                    _conversationService.AddAssistantMessage(response ?? "エラーが発生しました");
-                    _statusText!.Visibility = ViewStates.Gone;
-                    ScrollToBottom();
-                });
-            }
-            catch (Exception ex)
-            {
-                Android.Util.Log.Error("MainActivity", $"LLM応答エラー: {ex.Message}");
-                RunOnUiThread(() =>
-                {
-                    _statusText!.Visibility = ViewStates.Gone;
-                    ShowToast($"エラー: {ex.Message}");
-                });
-            }
-        });
+        // 処理状態を更新：バッファ待機中
+        UpdateProcessingState(RobinProcessingState.WaitingForBuffer);
     }
 
     private void OnSherpaError(object? sender, string errorMessage)
@@ -793,6 +785,155 @@ public class MainActivity : AppCompatActivity
         });
     }
 
+    /// <summary>
+    /// バッファ準備完了時のイベントハンドラー
+    /// 意味妥当性の判定と LLM 処理を実行
+    /// </summary>
+    private async void OnInputBufferReady(object? sender, string bufferContent)
+    {
+        Android.Util.Log.Info("MainActivity", $"バッファ準備完了: {bufferContent}");
+
+        // 処理状態を更新：意味判定中
+        UpdateProcessingState(RobinProcessingState.EvaluatingMeaning);
+
+        // まずユーザーメッセージを追加（生の認識結果）
+        RunOnUiThread(() =>
+        {
+            _conversationService?.AddUserMessage(bufferContent);
+        });
+
+        // バッファをフラッシュ
+        _inputBuffer?.FlushBuffer();
+
+        // 意味妥当性を判定（非同期）
+        if (_semanticValidationService == null)
+        {
+            // 検証サービスなしで直接処理
+            await ProcessValidInput(bufferContent);
+            return;
+        }
+
+        try
+        {
+            var validationResult = await _semanticValidationService.ValidateAsync(bufferContent);
+
+            if (validationResult.IsSemanticValid)
+            {
+                // 処理状態を更新：テキスト確認中
+                UpdateProcessingState(RobinProcessingState.ProcessingText);
+
+                // 意味が通じた場合、メッセージを更新して LLM処理へ
+                var messageIndex = _conversationService?.GetLastUserMessageIndex() ?? -1;
+                if (messageIndex >= 0)
+                {
+                    _conversationService?.UpdateMessageWithSemanticValidation(messageIndex, validationResult);
+
+                    // UIを更新（色を変更）
+                    RunOnUiThread(() =>
+                    {
+                        _messageAdapter?.UpdateMessage(messageIndex, _conversationService.GetMessages()[messageIndex]);
+                    });
+                }
+
+                await ProcessValidInput(validationResult.CorrectedText ?? bufferContent);
+            }
+            else
+            {
+                // 意味が通じない場合、次の入力を待つ
+                UpdateProcessingState(RobinProcessingState.Idle);
+
+                RunOnUiThread(() =>
+                {
+                    _statusText!.Text = "❌ 意味が通じません。もう一度お願いします。";
+                    _statusText!.Visibility = ViewStates.Visible;
+                    // 数秒後にステータステキストを非表示
+                    _statusText!.PostDelayed(() =>
+                    {
+                        _statusText!.Visibility = ViewStates.Gone;
+                    }, 3000);
+                });
+
+                Android.Util.Log.Info("MainActivity", $"意味判定失敗: {validationResult.Feedback}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error("MainActivity", $"意味判定エラー: {ex.Message}");
+            UpdateProcessingState(RobinProcessingState.Error, "判定エラー");
+
+            RunOnUiThread(() =>
+            {
+                _statusText!.PostDelayed(() =>
+                {
+                    UpdateProcessingState(RobinProcessingState.Idle);
+                }, 2000);
+            });
+
+            // エラー時は元のテキストで処理
+            await ProcessValidInput(bufferContent);
+        }
+    }
+
+    /// <summary>
+    /// 意味が通じたテキストを処理（LLMに送信）
+    /// </summary>
+    private async Task ProcessValidInput(string validatedText)
+    {
+        try
+        {
+            if (_openAIService == null || _conversationService == null)
+            {
+                UpdateProcessingState(RobinProcessingState.Error, "サービス未初期化");
+                ShowToast("サービスが初期化されていません");
+                return;
+            }
+
+            // 処理状態を更新：入力中（LLM レスポンス待機）
+            UpdateProcessingState(RobinProcessingState.WaitingForResponse);
+
+            // 会話履歴を取得（修正済みテキストが含まれている）
+            var messages = _conversationService.GetMessages();
+
+            // 最後のユーザーメッセージの内容を確認
+            var lastUserMessage = _conversationService.GetLastUserMessage();
+            if (lastUserMessage != null)
+            {
+                Android.Util.Log.Info("MainActivity",
+                    $"LLM への入力テキスト: '{lastUserMessage.Content}' " +
+                    $"(修正前: '{lastUserMessage.OriginalRecognizedText ?? lastUserMessage.Content}')");
+
+                // 修正が行われた場合
+                if (lastUserMessage.SemanticValidation?.IsSemanticValid == true &&
+                    lastUserMessage.OriginalRecognizedText != null &&
+                    lastUserMessage.OriginalRecognizedText != lastUserMessage.Content)
+                {
+                    Android.Util.Log.Info("MainActivity",
+                        $"テキスト修正実行: '{lastUserMessage.OriginalRecognizedText}' → '{lastUserMessage.Content}'");
+                }
+            }
+
+            // LLM に送信（修正済みテキストを含む会話履歴）
+            var response = await _openAIService.SendMessageAsync(messages);
+
+            Android.Util.Log.Info("MainActivity",
+                $"LLM からのレスポンス取得: {(string.IsNullOrEmpty(response) ? "なし" : response.Substring(0, Math.Min(100, response.Length)))}...");
+
+            RunOnUiThread(() =>
+            {
+                _conversationService.AddAssistantMessage(response ?? "エラーが発生しました");
+                // 処理完了：アイドル状態に戻す
+                UpdateProcessingState(RobinProcessingState.Idle);
+                ScrollToBottom();
+            });
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error("MainActivity", $"LLM応答エラー: {ex.Message}");
+            UpdateProcessingState(RobinProcessingState.Error, ex.Message);
+            ShowToast($"エラー: {ex.Message}");
+        }
+    }
+
     private void ScrollToBottom()
     {
         if (_recyclerView == null || _messageAdapter == null)
@@ -803,6 +944,30 @@ public class MainActivity : AppCompatActivity
         {
             _recyclerView.SmoothScrollToPosition(itemCount - 1);
         }
+    }
+
+    /// <summary>
+    /// 処理状態を更新してステータステキストに反映
+    /// </summary>
+    private void UpdateProcessingState(RobinProcessingState newState, string? details = null)
+    {
+        _currentProcessingState = newState;
+
+        RunOnUiThread(() =>
+        {
+            if (newState == RobinProcessingState.Idle)
+            {
+                _statusText!.Visibility = ViewStates.Gone;
+            }
+            else
+            {
+                _statusText!.Text = ProcessingStateMessages.GetDetailedMessage(newState, details);
+                _statusText!.Visibility = ViewStates.Visible;
+            }
+        });
+
+        // ログ出力
+        Android.Util.Log.Debug("MainActivity", $"処理状態: {newState} - {ProcessingStateMessages.GetMessage(newState)}");
     }
 
     private void ShowToast(string message)
@@ -989,10 +1154,16 @@ public class MainActivity : AppCompatActivity
     protected override void OnDestroy()
     {
         _voiceInputService?.Dispose();
+        _inputBuffer?.Dispose();
 
         if (_conversationService != null)
         {
             _conversationService.MessageAdded -= OnMessageAdded;
+        }
+
+        if (_inputBuffer != null)
+        {
+            _inputBuffer.BufferReady -= OnInputBufferReady;
         }
 
         base.OnDestroy();

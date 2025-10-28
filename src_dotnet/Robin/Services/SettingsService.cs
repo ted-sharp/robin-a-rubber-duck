@@ -25,6 +25,11 @@ public class SettingsService
     private const string STTModelNameKey = "stt_model_name";
     private const string STTEnabledKey = "stt_enabled";
 
+    // システムプロンプト設定キー
+    private const string ConversationPromptKey = "conversation_prompt";
+    private const string SemanticValidationPromptKey = "semantic_validation_prompt";
+    private const string UseCustomPromptsKey = "use_custom_prompts";
+
     // 旧互換性のための設定キー
     private const string LMStudioEndpointKey = "lm_studio_endpoint";
     private const string LMStudioModelNameKey = "lm_studio_model_name";
@@ -167,6 +172,12 @@ public class SettingsService
             SaveLLMProviderSettings(settings);
             Log.Info("SettingsService", $"LLM設定を適用しました [{provider}]");
         }
+
+        if (config?.SystemPromptSettings != null)
+        {
+            SaveSystemPromptSettings(config.SystemPromptSettings);
+            Log.Info("SettingsService", $"システムプロンプト設定を適用しました");
+        }
     }
 
     /// <summary>
@@ -230,12 +241,61 @@ public class SettingsService
     }
 
     /// <summary>
+    /// システムプロンプト設定を保存
+    /// </summary>
+    public void SaveSystemPromptSettings(SystemPromptSettings settings)
+    {
+        var editor = _preferences.Edit();
+        if (editor != null)
+        {
+            editor.PutString(ConversationPromptKey, settings.ConversationPrompt ?? "");
+            editor.PutString(SemanticValidationPromptKey, settings.SemanticValidationPrompt ?? "");
+            editor.PutBoolean(UseCustomPromptsKey, settings.UseCustomPrompts);
+            editor.Commit();
+            Log.Info("SettingsService", $"システムプロンプト設定を保存（カスタムプロンプト使用: {settings.UseCustomPrompts}）");
+        }
+    }
+
+    /// <summary>
+    /// システムプロンプト設定を読み込む
+    /// </summary>
+    public SystemPromptSettings LoadSystemPromptSettings()
+    {
+        var conversationPrompt = _preferences.GetString(ConversationPromptKey, "") ?? "";
+        var semanticValidationPrompt = _preferences.GetString(SemanticValidationPromptKey, "") ?? "";
+        var useCustomPrompts = _preferences.GetBoolean(UseCustomPromptsKey, false);
+
+        return new SystemPromptSettings(
+            string.IsNullOrEmpty(conversationPrompt) ? null : conversationPrompt,
+            string.IsNullOrEmpty(semanticValidationPrompt) ? null : semanticValidationPrompt,
+            useCustomPrompts
+        );
+    }
+
+    /// <summary>
+    /// システムプロンプト設定をクリア
+    /// </summary>
+    public void ClearSystemPromptSettings()
+    {
+        var editor = _preferences.Edit();
+        if (editor != null)
+        {
+            editor.Remove(ConversationPromptKey);
+            editor.Remove(SemanticValidationPromptKey);
+            editor.Remove(UseCustomPromptsKey);
+            editor.Commit();
+            Log.Info("SettingsService", "システムプロンプト設定をクリア");
+        }
+    }
+
+    /// <summary>
     /// 現在の設定を Configuration オブジェクトにエクスポート
     /// </summary>
     public Configuration ExportConfiguration()
     {
         var llmSettings = LoadLLMProviderSettings();
         var sttSettings = LoadSTTProviderSettings();
+        var systemPromptSettings = LoadSystemPromptSettings();
 
         return new Configuration
         {
@@ -263,7 +323,8 @@ public class SettingsService
             {
                 VerboseLogging = false,
                 Theme = "light"
-            }
+            },
+            SystemPromptSettings = systemPromptSettings
         };
     }
 }

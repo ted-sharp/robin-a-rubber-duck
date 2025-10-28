@@ -29,7 +29,9 @@ public class ConversationService
         var message = new Message
         {
             Role = MessageRole.User,
-            Content = content
+            Content = content,
+            OriginalRecognizedText = content,
+            DisplayState = MessageDisplayState.RawRecognized
         };
 
         _messages.Add(message);
@@ -51,6 +53,55 @@ public class ConversationService
     }
 
     public List<Message> GetMessages() => new(_messages);
+
+    /// <summary>
+    /// 指定インデックスのメッセージに意味検証結果を反映
+    /// </summary>
+    public void UpdateMessageWithSemanticValidation(int messageIndex, SemanticValidationResult validationResult)
+    {
+        if (messageIndex >= 0 && messageIndex < _messages.Count)
+        {
+            var message = _messages[messageIndex];
+            message.SemanticValidation = validationResult;
+            message.DisplayState = validationResult.IsSemanticValid ?
+                MessageDisplayState.SemanticValidated :
+                MessageDisplayState.RawRecognized;
+
+            // 意味が通じた場合は Content も更新
+            if (validationResult.IsSemanticValid && !string.IsNullOrEmpty(validationResult.CorrectedText))
+            {
+                message.Content = validationResult.CorrectedText;
+            }
+
+            SaveMessagesToStorage();
+        }
+    }
+
+    /// <summary>
+    /// 最後のユーザーメッセージを取得
+    /// </summary>
+    public Message? GetLastUserMessage()
+    {
+        for (int i = _messages.Count - 1; i >= 0; i--)
+        {
+            if (_messages[i].IsUser)
+                return _messages[i];
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 最後のユーザーメッセージのインデックスを取得
+    /// </summary>
+    public int GetLastUserMessageIndex()
+    {
+        for (int i = _messages.Count - 1; i >= 0; i--)
+        {
+            if (_messages[i].IsUser)
+                return i;
+        }
+        return -1;
+    }
 
     public void ClearHistory()
     {
