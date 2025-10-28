@@ -17,4 +17,24 @@
     <string name="error_voice_recognition">音声認識エラー</string>
     <string name="error_api">API通信エラー</string>
     <string name="permission_required">マイクの使用許可が必要です</string>
+
+    <!-- Welcome message -->
+    <string name="select_language">言語を選択</string>
+    <string name="welcome_title">Robin へようこそ！🦆</string>
+
+    <!-- Welcome messages split for better display -->
+    <string name="welcome_intro">Robinは音声でラバーダックデバッグを行うための AIアシスタントです。</string>
+
+    <string name="welcome_concept_title">🎯 アプリのコンセプト</string>
+    <string name="welcome_concept">Robinは、あなたの「ラバーダック」になります。プログラミング中の問題を声に出して説明することで、解法が見つかることがあります。</string>
+
+    <string name="welcome_usage_title">💡 使い方</string>
+    <string name="welcome_usage_step1">1️⃣ マイクボタン🎤 をタップして、あなたのコードの問題や疑問を話します</string>
+    <string name="welcome_usage_step2">2️⃣ Robinが問題を理解し、ヒントやアイデアを返します</string>
+    <string name="welcome_usage_step3">3️⃣ 複数回のやり取りで、より良い解決策を探します</string>
+
+    <string name="welcome_benefits_title">✨ Robinを使う利点</string>
+    <string name="welcome_benefits">📢 声に出すことで間違いに気づきやすくなります\n💬 LLMからヒントがもらえます\n⚡ キーボード入力より音声の方が早いです\n📚 説明の練習になります\n🧠 思考を整理しながら説明できます</string>
+
+    <string name="welcome_start">🚀 さあ、始めましょう！\nマイクボタンをタップして、あなたのコードについて話しかけてください。</string>
 </resources>

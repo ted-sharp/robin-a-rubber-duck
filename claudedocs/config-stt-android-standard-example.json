@@ -1,0 +1,25 @@
+{
+  "llmSettings": {
+    "provider": "openai",
+    "endpoint": "https://api.openai.com/v1/",
+    "modelName": "gpt-4o",
+    "apiKey": "sk-your-api-key-here",
+    "isEnabled": true
+  },
+  "voiceSettings": {
+    "engine": "android-standard",
+    "language": "ja-JP"
+  },
+  "sttSettings": {
+    "provider": "android-standard",
+    "endpoint": null,
+    "apiKey": null,
+    "language": "ja-JP",
+    "modelName": null,
+    "isEnabled": true
+  },
+  "otherSettings": {
+    "verboseLogging": false,
+    "theme": "light"
+  }
+}

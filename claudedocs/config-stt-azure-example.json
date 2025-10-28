@@ -1,0 +1,25 @@
+{
+  "llmSettings": {
+    "provider": "openai",
+    "endpoint": "https://api.openai.com/v1/",
+    "modelName": "gpt-4o",
+    "apiKey": "sk-your-api-key-here",
+    "isEnabled": true
+  },
+  "voiceSettings": {
+    "engine": "azure",
+    "language": "ja-JP"
+  },
+  "sttSettings": {
+    "provider": "azure",
+    "endpoint": "https://japaneast.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1",
+    "apiKey": "your-azure-api-key",
+    "language": "ja-JP",
+    "modelName": null,
+    "isEnabled": true
+  },
+  "otherSettings": {
+    "verboseLogging": false,
+    "theme": "light"
+  }
+}

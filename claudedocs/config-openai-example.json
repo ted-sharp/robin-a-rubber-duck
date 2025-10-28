@@ -1,0 +1,18 @@
+{
+  "llmSettings": {
+    "provider": "openai",
+    "endpoint": "https://api.openai.com/v1/",
+    "modelName": "gpt-4o",
+    "apiKey": "sk-your-api-key-here",
+    "isEnabled": true
+  },
+  "voiceSettings": {
+    "engine": "sherpa",
+    "language": "ja",
+    "modelName": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"
+  },
+  "otherSettings": {
+    "verboseLogging": false,
+    "theme": "light"
+  }
+}

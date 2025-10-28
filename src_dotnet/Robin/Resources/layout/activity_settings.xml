@@ -130,6 +130,43 @@
                     android:textColorHint="#CCCCCC" />
             </LinearLayout>
 
+            <!-- 設定ファイルインポート -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="16dp"
+                android:padding="12dp"
+                android:background="#F0F8FF">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="設定ファイルのインポート"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#1565C0"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="JSON形式の設定ファイルをインポートして、すべての設定を一度に適用できます。"
+                    android:textSize="12sp"
+                    android:textColor="#666666"
+                    android:layout_marginBottom="12dp" />
+
+                <Button
+                    android:id="@+id/import_config_button"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="設定ファイルを選択"
+                    android:textSize="14sp"
+                    android:padding="10dp"
+                    android:background="#40B0FF"
+                    android:textColor="@android:color/white" />
+            </LinearLayout>
+
             <!-- 情報パネル -->
             <LinearLayout
                 android:layout_width="match_parent"
@@ -158,20 +195,32 @@
                     android:textColor="#333333"
                     android:lineSpacingMultiplier="1.4" />
             </LinearLayout>
+
         </LinearLayout>
     </ScrollView>
 
-    <!-- 保存ボタン -->
-    <Button
-        android:id="@+id/save_button"
+    <!-- ボタン行 -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="保存"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:padding="12dp"
+        android:orientation="horizontal"
         android:layout_marginTop="16dp"
-        android:background="#2196F3"
-        android:textColor="@android:color/white" />
+        android:gravity="center"
+        android:spacing="8dp">
+
+        <!-- 保存ボタン -->
+        <Button
+            android:id="@+id/save_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="保存"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:padding="12dp"
+            android:background="#2196F3"
+            android:textColor="@android:color/white"
+            android:layout_marginEnd="8dp" />
+    </LinearLayout>
 
 </LinearLayout>

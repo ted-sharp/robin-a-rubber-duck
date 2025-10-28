@@ -24,7 +24,7 @@ public class MainActivity : AppCompatActivity
     private RecyclerView? _recyclerView;
     private FloatingActionButton? _micButton;
     private TextView? _statusText;
-    private TextView? _modelNameText;
+    private TextView? _welcomeMessageText;
     private View? _swipeHint;
 
     private MessageAdapter? _messageAdapter;
@@ -67,6 +67,46 @@ public class MainActivity : AppCompatActivity
         {
             _swipeHint.Alpha = 0f; // ドロワーが開いているのでヒントは非表示
         }
+
+        // 初回起動時にウェルカムメッセージを表示
+        ShowWelcomeMessageIfEmpty();
+    }
+
+    private void ShowWelcomeMessageIfEmpty()
+    {
+        // 会話ログが空の場合、ウェルカムメッセージをTextViewに表示
+        if (_conversationService == null || _conversationService.GetMessages().Count != 0)
+            return;
+
+        if (_welcomeMessageText == null)
+            return;
+
+        // 複数のメッセージを順番に追加（見た目を改善）
+        var messages = new[]
+        {
+            GetString(Resource.String.welcome_intro),
+            "",
+            GetString(Resource.String.welcome_concept_title),
+            GetString(Resource.String.welcome_concept),
+            "",
+            GetString(Resource.String.welcome_usage_title),
+            GetString(Resource.String.welcome_usage_step1),
+            GetString(Resource.String.welcome_usage_step2),
+            GetString(Resource.String.welcome_usage_step3),
+            "",
+            GetString(Resource.String.welcome_benefits_title),
+            GetString(Resource.String.welcome_benefits),
+            "",
+            GetString(Resource.String.welcome_start)
+        };
+
+        // ウェルカムメッセージをTextViewに表示
+        var fullWelcomeMessage = string.Join("\n", messages);
+        RunOnUiThread(() =>
+        {
+            _welcomeMessageText.Text = fullWelcomeMessage;
+            _welcomeMessageText.Visibility = ViewStates.Visible;
+        });
     }
 
     private void InitializeViews()
@@ -76,13 +116,13 @@ public class MainActivity : AppCompatActivity
         _recyclerView = FindViewById<RecyclerView>(Resource.Id.chat_recycler_view);
         _micButton = FindViewById<FloatingActionButton>(Resource.Id.mic_button);
         _statusText = FindViewById<TextView>(Resource.Id.status_text);
-        _modelNameText = FindViewById<TextView>(Resource.Id.model_name_text);
+        _welcomeMessageText = FindViewById<TextView>(Resource.Id.welcome_message_text);
         _swipeHint = FindViewById(Resource.Id.swipe_hint);
     }
 
     private void InitializeServices()
     {
-        _conversationService = new ConversationService();
+        _conversationService = new ConversationService(this);
         _conversationService.MessageAdded += OnMessageAdded;
 
         _voiceInputService = new VoiceInputService(this);
@@ -146,7 +186,6 @@ public class MainActivity : AppCompatActivity
                     {
                         _statusText!.Visibility = ViewStates.Gone;
                         _currentModelName = successModel;
-                        UpdateModelNameDisplay();
                         ShowToast($"Sherpa-ONNX初期化完了: {successModel}");
                     });
                 }
@@ -157,7 +196,6 @@ public class MainActivity : AppCompatActivity
                     {
                         _statusText!.Visibility = ViewStates.Gone;
                         _currentModelName = "Android Standard (Offline)";
-                        UpdateModelNameDisplay();
                         ShowToast("モデル初期化失敗。Android標準を使用します。");
                         _useSherpaOnnx = false;
                     });
@@ -170,7 +208,6 @@ public class MainActivity : AppCompatActivity
                 {
                     _statusText!.Visibility = ViewStates.Gone;
                     _currentModelName = "Android Standard (Error)";
-                    UpdateModelNameDisplay();
                     ShowToast("Sherpa初期化エラー。Android標準を使用します。");
                     _useSherpaOnnx = false;
                 });
@@ -179,24 +216,42 @@ public class MainActivity : AppCompatActivity
 
         // 設定サービス初期化
         _settingsService = new SettingsService(this);
-        var lmStudioSettings = _settingsService.LoadLMStudioSettings();
+        var llmSettings = _settingsService.LoadLLMProviderSettings();
 
-        // LM Studio有効化チェック
-        if (lmStudioSettings.IsEnabled && !string.IsNullOrWhiteSpace(lmStudioSettings.ModelName))
+        // LLMプロバイダー初期化
+        if (llmSettings.IsEnabled && !string.IsNullOrWhiteSpace(llmSettings.ModelName))
         {
             try
             {
-                // LM Studio APIを使用
-                _openAIService = new OpenAIService(lmStudioSettings.Endpoint, lmStudioSettings.ModelName, isLMStudio: true);
-                Android.Util.Log.Info("MainActivity", $"LM Studio初期化: {lmStudioSettings.Endpoint}");
-                ShowToast($"LM Studio接続: {lmStudioSettings.ModelName}");
+                if (llmSettings.Provider == "openai")
+                {
+                    // OpenAI API使用
+                    if (string.IsNullOrWhiteSpace(llmSettings.ApiKey))
+                    {
+                        throw new InvalidOperationException("OpenAI APIキーが設定されていません");
+                    }
+                    _openAIService = new OpenAIService(llmSettings.ApiKey, llmSettings.ModelName);
+                    Android.Util.Log.Info("MainActivity", $"OpenAI初期化: {llmSettings.ModelName}");
+                    ShowToast($"OpenAI接続: {llmSettings.ModelName}");
+                }
+                else if (llmSettings.Provider == "lm-studio")
+                {
+                    // LM Studio API使用
+                    _openAIService = new OpenAIService(llmSettings.Endpoint, llmSettings.ModelName, isLMStudio: true);
+                    Android.Util.Log.Info("MainActivity", $"LM Studio初期化: {llmSettings.Endpoint}");
+                    ShowToast($"LM Studio接続: {llmSettings.ModelName}");
+                }
+                else
+                {
+                    throw new InvalidOperationException($"未サポートのプロバイダー: {llmSettings.Provider}");
+                }
             }
             catch (Exception ex)
             {
-                Android.Util.Log.Error("MainActivity", $"LM Studio初期化失敗: {ex.Message}");
+                Android.Util.Log.Error("MainActivity", $"LLM初期化失敗: {ex.Message}");
                 // フォールバック: モック版
                 _openAIService = new OpenAIService("mock-api-key");
-                ShowToast("LM Studio接続失敗。モック版を使用します。");
+                ShowToast($"LLM接続失敗: {ex.Message}。モック版を使用します。");
             }
         }
         else
@@ -206,13 +261,6 @@ public class MainActivity : AppCompatActivity
         }
     }
 
-    private void UpdateModelNameDisplay()
-    {
-        if (_modelNameText != null && !string.IsNullOrEmpty(_currentModelName))
-        {
-            _modelNameText.Text = _currentModelName;
-        }
-    }
 
     private void ShowModelSelectionDialog()
     {
@@ -345,7 +393,6 @@ public class MainActivity : AppCompatActivity
                     RunOnUiThread(() =>
                     {
                         _currentModelName = modelName;
-                        UpdateModelNameDisplay();
                         _statusText!.Visibility = ViewStates.Gone;
                         ShowToast($"モデル読み込み完了: {modelName}");
                         Android.Util.Log.Info("MainActivity", $"モデル読み込み成功: {modelName}");
@@ -436,8 +483,13 @@ public class MainActivity : AppCompatActivity
             }
             else if (itemId == Resource.Id.nav_about)
             {
-                // バージョン情報
-                ShowToast("Robin v1.0.0");
+                // バージョン情報とモデル情報
+                ShowAboutDialog();
+            }
+            else if (itemId == Resource.Id.nav_clear_chat)
+            {
+                // チャット履歴をクリア
+                ShowClearChatConfirmDialog();
             }
             else if (itemId == Resource.Id.nav_verbose_logging)
             {
@@ -730,6 +782,12 @@ public class MainActivity : AppCompatActivity
     {
         RunOnUiThread(() =>
         {
+            // ウェルカムメッセージを非表示にする
+            if (_welcomeMessageText != null)
+            {
+                _welcomeMessageText.Visibility = ViewStates.Gone;
+            }
+
             _messageAdapter?.AddMessage(message);
             ScrollToBottom();
         });
@@ -750,6 +808,54 @@ public class MainActivity : AppCompatActivity
     private void ShowToast(string message)
     {
         Toast.MakeText(this, message, ToastLength.Short)?.Show();
+    }
+
+    private void ShowAboutDialog()
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("バージョン情報");
+
+        // モデル情報を構築
+        var asrModel = _currentModelName ?? "未初期化";
+        var llmSettings = _settingsService?.LoadLLMProviderSettings();
+        var llmModel = llmSettings?.ModelName ?? "モック版";
+
+        var message = $"Robin v1.0.0\n\n" +
+                      $"音声認識 (ASR):\n" +
+                      $"{asrModel}\n\n" +
+                      $"言語モデル (LLM):\n" +
+                      $"{llmModel}";
+
+        builder.SetMessage(message);
+        builder.SetPositiveButton("OK", (sender, e) => { });
+
+        var dialog = builder.Create();
+        dialog?.Show();
+    }
+
+    private void ShowClearChatConfirmDialog()
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("チャット履歴をクリア");
+        builder.SetMessage("本当にチャット履歴をすべて削除しますか？この操作は元に戻せません。");
+
+        builder.SetPositiveButton("削除", (sender, e) =>
+        {
+            _conversationService?.ClearHistory();
+            _messageAdapter?.ClearMessages();
+            ShowToast("チャット履歴をクリアしました");
+
+            // ウェルカムメッセージを表示
+            ShowWelcomeMessageIfEmpty();
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) =>
+        {
+            // キャンセル - 何もしない
+        });
+
+        var dialog = builder.Create();
+        dialog?.Show();
     }
 
     private void UpdateMicButtonState()

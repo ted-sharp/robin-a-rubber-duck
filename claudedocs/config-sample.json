@@ -1,0 +1,18 @@
+{
+  "llmSettings": {
+    "provider": "lm-studio",
+    "endpoint": "http://192.168.0.7:1234",
+    "modelName": "openai/gpt-oss-20b",
+    "apiKey": null,
+    "isEnabled": true
+  },
+  "voiceSettings": {
+    "engine": "sherpa",
+    "language": "ja",
+    "modelName": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"
+  },
+  "otherSettings": {
+    "verboseLogging": false,
+    "theme": "light"
+  }
+}

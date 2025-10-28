@@ -12,11 +12,16 @@ public class OpenAIService
     private readonly string _apiKey;
     private readonly string _model;
     private readonly string _baseAddress;
+    private readonly string _provider; // "openai" or "lm-studio"
 
+    /// <summary>
+    /// OpenAI APIを使用して初期化
+    /// </summary>
     public OpenAIService(string apiKey, string model = "gpt-4")
     {
         _apiKey = apiKey;
         _model = model;
+        _provider = "openai";
         _baseAddress = "https://api.openai.com/v1/";
         _httpClient = new HttpClient
         {
@@ -24,13 +29,17 @@ public class OpenAIService
             Timeout = TimeSpan.FromSeconds(60)
         };
         _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
+        Log.Info("OpenAIService", $"初期化完了 [OpenAI] - Model: {_model}");
     }
 
-    // LM Studio互換API用コンストラクタ
+    /// <summary>
+    /// LM Studio互換API用コンストラクタ（従来の使用方法）
+    /// </summary>
     public OpenAIService(string endpoint, string model, bool isLMStudio)
     {
         _apiKey = "lm-studio"; // LM StudioはAPIキー不要
         _model = model;
+        _provider = "lm-studio";
         _baseAddress = endpoint.TrimEnd('/') + "/v1/";
         _httpClient = new HttpClient
         {
@@ -43,8 +52,45 @@ public class OpenAIService
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
         }
 
-        // デバッグログ
-        Log.Info("OpenAIService", $"初期化完了 - BaseAddress: {_baseAddress}, Model: {_model}, IsLMStudio: {isLMStudio}");
+        Log.Info("OpenAIService", $"初期化完了 [LM Studio] - BaseAddress: {_baseAddress}, Model: {_model}");
+    }
+
+    /// <summary>
+    /// 汎用初期化コンストラクタ（複数プロバイダー対応）
+    /// </summary>
+    public OpenAIService(string provider, string endpoint, string model, string? apiKey = null)
+    {
+        _provider = provider.ToLower();
+        _model = model;
+        _apiKey = apiKey ?? "default";
+
+        _httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(60)
+        };
+
+        if (_provider == "openai")
+        {
+            _baseAddress = "https://api.openai.com/v1/";
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                throw new ArgumentException("OpenAI APIキーが必要です", nameof(apiKey));
+            }
+            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
+            Log.Info("OpenAIService", $"初期化完了 [OpenAI] - Model: {_model}");
+        }
+        else if (_provider == "lm-studio")
+        {
+            _baseAddress = endpoint.TrimEnd('/') + "/v1/";
+            // LM Studioの場合はAuthorizationヘッダーは不要
+            Log.Info("OpenAIService", $"初期化完了 [LM Studio] - BaseAddress: {_baseAddress}, Model: {_model}");
+        }
+        else
+        {
+            throw new ArgumentException($"サポートされていないプロバイダー: {provider}", nameof(provider));
+        }
+
+        _httpClient.BaseAddress = new Uri(_baseAddress);
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "JSON models are preserved")]

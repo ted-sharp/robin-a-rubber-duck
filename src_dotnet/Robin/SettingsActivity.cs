@@ -1,7 +1,10 @@
 using Android.App;
+using Android.Content;
 using Android.OS;
 using Android.Util;
 using AndroidX.AppCompat.App;
+using AndroidX.Activity.Result;
+using AndroidX.Activity.Result.Contract;
 using Android.Widget;
 using Robin.Models;
 using Robin.Services;
@@ -16,7 +19,10 @@ public class SettingsActivity : AppCompatActivity
     private CheckBox? _enabledCheckbox;
     private Button? _saveButton;
     private Button? _backButton;
+    private Button? _importButton;
     private SettingsService? _settingsService;
+    private ActivityResultLauncher? _filePickerLauncher;
+
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
@@ -25,6 +31,7 @@ public class SettingsActivity : AppCompatActivity
 
         InitializeViews();
         InitializeSettingsService();
+        SetupFilePickerLauncher();
         LoadSettings();
         SetupEventHandlers();
     }
@@ -36,6 +43,7 @@ public class SettingsActivity : AppCompatActivity
         _enabledCheckbox = FindViewById<CheckBox>(Resource.Id.lm_studio_enabled_checkbox);
         _saveButton = FindViewById<Button>(Resource.Id.save_button);
         _backButton = FindViewById<Button>(Resource.Id.settings_back_button);
+        _importButton = FindViewById<Button>(Resource.Id.import_config_button);
     }
 
     private void InitializeSettingsService()
@@ -68,6 +76,14 @@ public class SettingsActivity : AppCompatActivity
         }
     }
 
+    private void SetupFilePickerLauncher()
+    {
+        _filePickerLauncher = RegisterForActivityResult(
+            new ActivityResultContracts.GetContent(),
+            new ActivityResultCallback(this)
+        );
+    }
+
     private void SetupEventHandlers()
     {
         if (_saveButton != null)
@@ -78,6 +94,129 @@ public class SettingsActivity : AppCompatActivity
         if (_backButton != null)
         {
             _backButton.Click += (s, e) => Finish();
+        }
+
+        if (_importButton != null)
+        {
+            _importButton.Click += (s, e) => OpenFilePickerDialog();
+        }
+    }
+
+    private void OpenFilePickerDialog()
+    {
+        if (_filePickerLauncher == null)
+        {
+            ShowToast("ファイルピッカーが初期化されていません");
+            return;
+        }
+
+        _filePickerLauncher.Launch("application/json");
+    }
+
+    public async void ImportConfigurationFile(Android.Net.Uri? uri)
+    {
+        if (uri == null)
+        {
+            ShowToast("ファイルが選択されていません");
+            return;
+        }
+
+        if (_settingsService == null)
+        {
+            ShowToast("設定サービスが初期化されていません");
+            return;
+        }
+
+        try
+        {
+            ShowToast("設定ファイルを読み込み中...");
+
+            // ContentResolver を使用してファイルを読み込む
+            var filePath = GetFilePathFromUri(uri);
+            if (string.IsNullOrEmpty(filePath))
+            {
+                ShowToast("ファイルパスを取得できませんでした");
+                return;
+            }
+
+            Log.Info("SettingsActivity", $"ファイルを選択: {filePath}");
+
+            // 設定ファイルを読み込む
+            var config = await _settingsService.LoadConfigurationFromFileAsync(filePath);
+
+            if (config != null)
+            {
+                // 設定を適用
+                _settingsService.ApplyConfiguration(config);
+
+                // UIを更新
+                LoadSettings();
+
+                ShowToast("設定ファイルをインポートしました");
+                Log.Info("SettingsActivity", "設定ファイルのインポート完了");
+            }
+            else
+            {
+                ShowToast("設定ファイルの読み込みに失敗しました");
+                Log.Error("SettingsActivity", "設定ファイルの読み込みに失敗");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowToast($"エラー: {ex.Message}");
+            Log.Error("SettingsActivity", $"ファイル読み込みエラー: {ex.Message}");
+        }
+    }
+
+    private string? GetFilePathFromUri(Android.Net.Uri uri)
+    {
+        try
+        {
+            // content:// URI をファイルパスに変換
+            var cursor = ContentResolver?.Query(uri, null, null, null, null);
+            if (cursor != null)
+            {
+                int column_index = cursor.GetColumnIndexOrThrow(Android.Provider.MediaStore.MediaColumns.Data);
+                cursor.MoveToFirst();
+                string filePath = cursor.GetString(column_index);
+                cursor.Close();
+                return filePath;
+            }
+
+            // ファイルスキームの場合は直接使用
+            if (uri.Scheme == "file")
+            {
+                return uri.Path;
+            }
+
+            // キャッシュに一時保存して使用
+            return CopyUriToCache(uri);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SettingsActivity", $"URI変換エラー: {ex.Message}");
+            return null;
+        }
+    }
+
+    private string? CopyUriToCache(Android.Net.Uri uri)
+    {
+        try
+        {
+            using var inputStream = ContentResolver?.OpenInputStream(uri);
+            if (inputStream == null)
+                return null;
+
+            var cacheFile = new Java.IO.File(CacheDir, "config_temp.json");
+            using var outputStream = new System.IO.FileStream(cacheFile.AbsolutePath, System.IO.FileMode.Create);
+            inputStream.CopyTo(outputStream);
+
+            return cacheFile.AbsolutePath;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SettingsActivity", $"キャッシュコピーエラー: {ex.Message}");
+            return null;
         }
     }
 
@@ -187,5 +326,26 @@ public class SettingsActivity : AppCompatActivity
     private void ShowToast(string message)
     {
         Toast.MakeText(this, message, ToastLength.Short)?.Show();
+    }
+}
+
+/// <summary>
+/// ファイルピッカーの結果を処理するコールバック
+/// </summary>
+public class ActivityResultCallback : Java.Lang.Object, IActivityResultCallback
+{
+    private readonly SettingsActivity _activity;
+
+    public ActivityResultCallback(SettingsActivity activity)
+    {
+        _activity = activity;
+    }
+
+    public void OnActivityResult(Java.Lang.Object? result)
+    {
+        if (result is Android.Net.Uri uri)
+        {
+            _activity.ImportConfigurationFile(uri);
+        }
     }
 }
