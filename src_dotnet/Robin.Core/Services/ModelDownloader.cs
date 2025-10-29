@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Robin.Core.Models;
 
 namespace Robin.Core.Services;
@@ -177,7 +177,8 @@ public class ModelDownloader
         while (true)
         {
             var bytesRead = await contentStream.ReadAsync(buffer, cancellationToken);
-            if (bytesRead == 0) break;
+            if (bytesRead == 0)
+                break;
 
             await fileStream.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
             totalBytesRead += bytesRead;

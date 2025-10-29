@@ -1,11 +1,11 @@
-using Android.App;
+﻿using Android.App;
 using Android.Content;
 using Android.OS;
 using Android.Util;
-using AndroidX.AppCompat.App;
+using Android.Widget;
 using AndroidX.Activity.Result;
 using AndroidX.Activity.Result.Contract;
-using Android.Widget;
+using AndroidX.AppCompat.App;
 using Robin.Models;
 using Robin.Services;
 
@@ -56,7 +56,8 @@ public class SettingsActivity : AppCompatActivity
 
     private void LoadSettings()
     {
-        if (_settingsService == null) return;
+        if (_settingsService == null)
+            return;
 
         var settings = _settingsService.LoadLMStudioSettings();
 
@@ -222,7 +223,8 @@ public class SettingsActivity : AppCompatActivity
 
     private void SaveSettings()
     {
-        if (_settingsService == null) return;
+        if (_settingsService == null)
+            return;
 
         var endpoint = _endpointInput?.Text ?? "http://localhost:1234";
         var modelName = _modelNameInput?.Text ?? string.Empty;
@@ -314,7 +316,8 @@ public class SettingsActivity : AppCompatActivity
 
     private void SaveSettingsInternal(string endpoint, string modelName, bool isEnabled)
     {
-        if (_settingsService == null) return;
+        if (_settingsService == null)
+            return;
 
         var settings = new LMStudioSettings(endpoint, modelName, isEnabled);
         _settingsService.SaveLMStudioSettings(settings);

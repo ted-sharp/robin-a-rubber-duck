@@ -1,4 +1,4 @@
-namespace Robin.Models;
+﻿namespace Robin.Models;
 
 /// <summary>
 /// Robin の処理状態を定義

@@ -1,6 +1,6 @@
-﻿using Robin.Core.Models;
+﻿using System.Text.Json;
+using Robin.Core.Models;
 using Robin.Core.Services;
-using System.Text.Json;
 
 namespace ModelPrepTool;
 

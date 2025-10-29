@@ -111,7 +111,7 @@ public class VoiceInputService
         _speechRecognizer?.Dispose();
     }
 
-    private class RecognitionListener : Java.Lang.Object, IRecognitionListener
+    private sealed class RecognitionListener : Java.Lang.Object, IRecognitionListener
     {
         private readonly VoiceInputService _service;
 

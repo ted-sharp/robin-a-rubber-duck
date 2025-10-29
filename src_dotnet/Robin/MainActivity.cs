@@ -1,4 +1,4 @@
-using Android.Content.PM;
+﻿using Android.Content.PM;
 using Android.Views;
 using AndroidX.AppCompat.App;
 using AndroidX.Core.App;
@@ -10,7 +10,6 @@ using Google.Android.Material.Navigation;
 using Robin.Adapters;
 using Robin.Models;
 using Robin.Services;
-using Robin.Views;
 
 namespace Robin;
 
@@ -37,12 +36,9 @@ public class MainActivity : AppCompatActivity
     private SemanticValidationService? _semanticValidationService;
 
     // 音声認識エンジンの選択
-    private bool _useSherpaOnnx = true; // true: Sherpa-ONNX, false: Android標準
+    private readonly bool _useSherpaOnnx = true; // true: Sherpa-ONNX, false: Android標準
     private string? _currentModelName = null; // 現在のモデル名
     private string _selectedLanguage = "ja"; // 選択言語（デフォルト: 日本語）
-
-    // 処理状態の追跡
-    private RobinProcessingState _currentProcessingState = RobinProcessingState.Idle;
 
     // 利用可能なモデル
     private readonly string[] _availableModels = new[]
@@ -62,7 +58,7 @@ public class MainActivity : AppCompatActivity
         InitializeServices();
         SetupRecyclerView();
         SetupDrawerNavigation();
-        SetupMicButton();
+        SetupMicButton();  // ← このタイミングで登録（Sherpaの初期化と並行実行）
         SetupBackPressHandler();
         CheckPermissions();
 
@@ -140,6 +136,27 @@ public class MainActivity : AppCompatActivity
         _voiceInputService.RecognitionResult += OnRecognitionResult;
         _voiceInputService.RecognitionError += OnRecognitionError;
 
+        // Sherpa-ONNXサービスの初期化
+        InitializeSherpaService();
+
+        // 設定サービス初期化
+        _settingsService = new SettingsService(this);
+
+        // LLMプロバイダー初期化
+        InitializeLLMService();
+
+        // セマンティック検証サービスの初期化（SettingsService を注入してカスタムプロンプット対応）
+        _semanticValidationService = new SemanticValidationService(_openAIService, _settingsService);
+
+        // システムプロンプト設定を読み込んで適用
+        ApplySystemPromptSettings();
+    }
+
+    /// <summary>
+    /// Sherpa-ONNXサービスの初期化
+    /// </summary>
+    private void InitializeSherpaService()
+    {
         // Sherpa-ONNXサービス
         _sherpaService = new SherpaRealtimeService(this);
         _sherpaService.RecognitionStarted += OnSherpaRecognitionStarted;
@@ -148,132 +165,201 @@ public class MainActivity : AppCompatActivity
         _sherpaService.Error += OnSherpaError;
         _sherpaService.InitializationProgress += OnSherpaInitializationProgress;
 
-        // Sherpa-ONNXの非同期初期化
-        Task.Run(async () =>
+        // 非同期初期化（設定から選択されているモデルを読み込む）
+        Task.Run(async () => await InitializeSherpaAsync());
+    }
+
+    /// <summary>
+    /// Sherpa-ONNXサービスの非同期初期化処理
+    /// </summary>
+    private async Task InitializeSherpaAsync()
+    {
+        try
         {
-            try
+            // UI更新は最小限に（初期化ステータスは最初だけ表示）
+            RunOnUiThread(() =>
             {
-                RunOnUiThread(() =>
+                if (_statusText != null)
                 {
-                    _statusText!.Text = "Sherpa-ONNX初期化中...";
-                    _statusText!.Visibility = ViewStates.Visible;
-                });
-
-                // アセットからモデルを初期化（利用可能なモデル）
-                string[] modelNames = _availableModels;
-
-                bool initialized = false;
-                string? successModel = null;
-
-                foreach (var modelName in modelNames)
-                {
-                    Android.Util.Log.Info("MainActivity", $"Sherpa初期化試行: {modelName}");
-                    RunOnUiThread(() =>
-                    {
-                        _statusText!.Text = $"初期化中: {modelName}";
-                    });
-
-                    try
-                    {
-                        initialized = await _sherpaService.InitializeAsync(modelName, isFilePath: false);
-                        if (initialized)
-                        {
-                            successModel = modelName;
-                            Android.Util.Log.Info("MainActivity", $"Sherpa初期化成功: {modelName}");
-                            break;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Android.Util.Log.Warn("MainActivity", $"Sherpa初期化失敗 {modelName}: {ex.Message}");
-                    }
+                    _statusText.Text = "Sherpa-ONNX初期化中...";
+                    _statusText.Visibility = ViewStates.Visible;
                 }
+            });
 
-                if (initialized && successModel != null)
-                {
-                    RunOnUiThread(() =>
-                    {
-                        _statusText!.Visibility = ViewStates.Gone;
-                        _currentModelName = successModel;
-                        ShowToast($"Sherpa-ONNX初期化完了: {successModel}");
-                    });
-                }
-                else
-                {
-                    Android.Util.Log.Error("MainActivity", "すべてのモデルで初期化失敗 - Android標準を使用");
-                    RunOnUiThread(() =>
-                    {
-                        _statusText!.Visibility = ViewStates.Gone;
-                        _currentModelName = "Android Standard (Offline)";
-                        ShowToast("モデル初期化失敗。Android標準を使用します。");
-                        _useSherpaOnnx = false;
-                    });
-                }
-            }
-            catch (Exception ex)
+            // 初期化を非同期で実行（UI をブロックしない）
+            var (initialized, modelName) = await Task.Run(async () =>
+                await TryInitializeSherpaModelsAsync()
+            );
+
+            if (initialized && modelName != null)
             {
-                Android.Util.Log.Error("MainActivity", $"Sherpa初期化エラー: {ex.Message}");
-                RunOnUiThread(() =>
-                {
-                    _statusText!.Visibility = ViewStates.Gone;
-                    _currentModelName = "Android Standard (Error)";
-                    ShowToast("Sherpa初期化エラー。Android標準を使用します。");
-                    _useSherpaOnnx = false;
-                });
+                OnSherpaInitializeSuccess(modelName);
             }
+            else
+            {
+                OnSherpaInitializeFailure();
+            }
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error("MainActivity", $"Sherpa初期化エラー: {ex.Message}");
+            OnSherpaInitializeFailure();
+        }
+    }
+
+    /// <summary>
+    /// 利用可能なSherpaモデルを順に初期化を試行
+    /// </summary>
+    private async Task<(bool, string?)> TryInitializeSherpaModelsAsync()
+    {
+        // 設定から選択されているモデルを読み込む
+        var sttSettings = _settingsService?.LoadSTTProviderSettings();
+        var selectedModel = sttSettings?.ModelName;
+
+        // 初期化を試みるモデルのリスト（設定から選択されているモデルを最優先）
+        var modelsToTry = new List<string>();
+
+        // 選択されているモデルを最初に追加
+        if (!string.IsNullOrWhiteSpace(selectedModel))
+        {
+            modelsToTry.Add(selectedModel);
+            Android.Util.Log.Info("MainActivity", $"設定から選択されているモデル: {selectedModel}");
+        }
+
+        // フォールバック用の他のモデルを追加
+        modelsToTry.AddRange(new[]
+        {
+            "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09",
+            "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01",
+            "sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8",
+            "sherpa-onnx-whisper-tiny"
         });
 
-        // 設定サービス初期化
-        _settingsService = new SettingsService(this);
-        var llmSettings = _settingsService.LoadLLMProviderSettings();
-
-        // LLMプロバイダー初期化
-        if (llmSettings.IsEnabled && !string.IsNullOrWhiteSpace(llmSettings.ModelName))
+        // 重複排除（選択されているモデルが複数回含まれないようにする）
+        var uniqueModels = new Dictionary<string, bool>();
+        foreach (var model in modelsToTry)
         {
+            if (!uniqueModels.ContainsKey(model))
+            {
+                uniqueModels.Add(model, true);
+            }
+        }
+
+        foreach (var modelName in uniqueModels.Keys)
+        {
+            Android.Util.Log.Info("MainActivity", $"Sherpa初期化試行: {modelName}");
+            RunOnUiThread(() =>
+            {
+                if (_statusText != null)
+                {
+                    _statusText.Text = $"初期化中: {modelName}";
+                }
+            });
+
             try
             {
-                if (llmSettings.Provider == "openai")
+                bool initialized = await _sherpaService.InitializeAsync(modelName, isFilePath: false);
+                if (initialized)
                 {
-                    // OpenAI API使用
-                    if (string.IsNullOrWhiteSpace(llmSettings.ApiKey))
-                    {
-                        throw new InvalidOperationException("OpenAI APIキーが設定されていません");
-                    }
-                    _openAIService = new OpenAIService(llmSettings.ApiKey, llmSettings.ModelName);
-                    Android.Util.Log.Info("MainActivity", $"OpenAI初期化: {llmSettings.ModelName}");
-                    ShowToast($"OpenAI接続: {llmSettings.ModelName}");
-                }
-                else if (llmSettings.Provider == "lm-studio")
-                {
-                    // LM Studio API使用
-                    _openAIService = new OpenAIService(llmSettings.Endpoint, llmSettings.ModelName, isLMStudio: true);
-                    Android.Util.Log.Info("MainActivity", $"LM Studio初期化: {llmSettings.Endpoint}");
-                    ShowToast($"LM Studio接続: {llmSettings.ModelName}");
-                }
-                else
-                {
-                    throw new InvalidOperationException($"未サポートのプロバイダー: {llmSettings.Provider}");
+                    Android.Util.Log.Info("MainActivity", $"Sherpa初期化成功: {modelName}");
+                    return (true, modelName);
                 }
             }
             catch (Exception ex)
             {
-                Android.Util.Log.Error("MainActivity", $"LLM初期化失敗: {ex.Message}");
-                // フォールバック: モック版
-                _openAIService = new OpenAIService("mock-api-key");
-                ShowToast($"LLM接続失敗: {ex.Message}。モック版を使用します。");
+                Android.Util.Log.Warn("MainActivity", $"Sherpa初期化失敗 {modelName}: {ex.Message}");
             }
+        }
+
+        return (false, null);
+    }
+
+    /// <summary>
+    /// Sherpa初期化成功時の処理
+    /// </summary>
+    private void OnSherpaInitializeSuccess(string modelName)
+    {
+        RunOnUiThread(() =>
+        {
+            if (_statusText != null)
+            {
+                _statusText.Visibility = ViewStates.Gone;
+            }
+            _currentModelName = modelName;
+            ShowToast($"Sherpa-ONNX初期化完了: {modelName}");
+        });
+    }
+
+    /// <summary>
+    /// Sherpa初期化失敗時の処理（フォールバック）
+    /// </summary>
+    private void OnSherpaInitializeFailure()
+    {
+        Android.Util.Log.Error("MainActivity", "すべてのモデルで初期化失敗 - Android標準を使用");
+        RunOnUiThread(() =>
+        {
+            if (_statusText != null)
+            {
+                _statusText.Visibility = ViewStates.Gone;
+            }
+            _currentModelName = "Android Standard (Offline)";
+            ShowToast("モデル初期化失敗。Android標準を使用します。");
+        });
+    }
+
+    /// <summary>
+    /// LLMプロバイダーサービスの初期化
+    /// </summary>
+    private void InitializeLLMService()
+    {
+        var llmSettings = _settingsService.LoadLLMProviderSettings();
+
+        if (llmSettings.IsEnabled && !string.IsNullOrWhiteSpace(llmSettings.ModelName))
+        {
+            InitializeLLMProvider(llmSettings);
         }
         else
         {
             // モック版: APIキーなしで動作
             _openAIService = new OpenAIService("mock-api-key");
         }
+    }
 
-        // セマンティック検証サービスの初期化
-        _semanticValidationService = new SemanticValidationService(_openAIService);
-
-        // システムプロンプト設定を読み込んで適用
-        ApplySystemPromptSettings();
+    /// <summary>
+    /// 指定されたLLMプロバイダーを初期化
+    /// </summary>
+    private void InitializeLLMProvider(LLMProviderSettings llmSettings)
+    {
+        try
+        {
+            if (llmSettings.Provider == "openai")
+            {
+                if (string.IsNullOrWhiteSpace(llmSettings.ApiKey))
+                {
+                    throw new InvalidOperationException("OpenAI APIキーが設定されていません");
+                }
+                _openAIService = new OpenAIService(llmSettings.ApiKey, llmSettings.ModelName);
+                Android.Util.Log.Info("MainActivity", $"OpenAI初期化: {llmSettings.ModelName}");
+                ShowToast($"OpenAI接続: {llmSettings.ModelName}");
+            }
+            else if (llmSettings.Provider == "lm-studio")
+            {
+                _openAIService = new OpenAIService(llmSettings.Endpoint, llmSettings.ModelName, isLMStudio: true);
+                Android.Util.Log.Info("MainActivity", $"LM Studio初期化: {llmSettings.Endpoint}");
+                ShowToast($"LM Studio接続: {llmSettings.ModelName}");
+            }
+            else
+            {
+                throw new InvalidOperationException($"未サポートのプロバイダー: {llmSettings.Provider}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error("MainActivity", $"LLM初期化失敗: {ex.Message}");
+            // フォールバック: モック版
+            _openAIService = new OpenAIService("mock-api-key");
+            ShowToast($"LLM接続失敗: {ex.Message}。モック版を使用します。");
+        }
     }
 
     /// <summary>
@@ -281,7 +367,8 @@ public class MainActivity : AppCompatActivity
     /// </summary>
     private void ApplySystemPromptSettings()
     {
-        if (_settingsService == null || _openAIService == null) return;
+        if (_settingsService == null || _openAIService == null)
+            return;
 
         try
         {
@@ -951,8 +1038,6 @@ public class MainActivity : AppCompatActivity
     /// </summary>
     private void UpdateProcessingState(RobinProcessingState newState, string? details = null)
     {
-        _currentProcessingState = newState;
-
         RunOnUiThread(() =>
         {
             if (newState == RobinProcessingState.Idle)

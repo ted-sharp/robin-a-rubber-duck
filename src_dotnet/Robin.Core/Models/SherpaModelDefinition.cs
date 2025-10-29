@@ -1,4 +1,4 @@
-namespace Robin.Core.Models;
+﻿namespace Robin.Core.Models;
 
 /// <summary>
 /// Sherpa-ONNX model definition with download metadata

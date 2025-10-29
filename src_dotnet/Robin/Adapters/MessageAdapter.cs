@@ -5,7 +5,7 @@ using Robin.Models;
 
 namespace Robin.Adapters;
 
-public class MessageAdapter : RecyclerView.Adapter
+public sealed class MessageAdapter : RecyclerView.Adapter
 {
     private readonly List<Message> _messages;
     private const int ViewTypeUser = 1;
@@ -104,7 +104,7 @@ public class MessageAdapter : RecyclerView.Adapter
         NotifyItemRangeRemoved(0, count);
     }
 
-    private class UserMessageViewHolder : RecyclerView.ViewHolder
+    private sealed class UserMessageViewHolder : RecyclerView.ViewHolder
     {
         private readonly TextView _messageText;
         private readonly TextView _timeText;
@@ -168,7 +168,7 @@ public class MessageAdapter : RecyclerView.Adapter
         }
     }
 
-    private class AIMessageViewHolder : RecyclerView.ViewHolder
+    private sealed class AIMessageViewHolder : RecyclerView.ViewHolder
     {
         private readonly TextView _messageText;
         private readonly TextView _timeText;

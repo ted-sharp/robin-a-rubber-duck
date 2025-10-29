@@ -62,16 +62,11 @@ public class SherpaRealtimeService : IDisposable
 
     // ===== Sherpa-ONNX 認識エンジン =====
     private OfflineRecognizer? _recognizer;
-    private List<float> _audioBuffer = new List<float>();
+    private readonly List<float> _audioBuffer = new List<float>();
     private readonly object _bufferLock = new object();
     private string _selectedLanguage = "ja"; // デフォルト言語は日本語
 
     // 認識ライフサイクル用イベント
-    // 将来の実装: PartialResultは途中結果の表示に使用予定
-#pragma warning disable CS0067
-    public event EventHandler<string>? PartialResult;
-#pragma warning restore CS0067
-
     public event EventHandler<string>? FinalResult;
     public event EventHandler<string>? Error;
     public event EventHandler? RecognitionStarted;
@@ -267,7 +262,7 @@ public class SherpaRealtimeService : IDisposable
         };
     }
 
-/// <summary>
+    /// <summary>
     /// Sherpa-ONNX認識器を初期化
     /// </summary>
     /// <param name="modelPath">モデルパス（assetsパス or ファイルシステムパス）</param>
@@ -306,7 +301,7 @@ public class SherpaRealtimeService : IDisposable
             });
 
             // モデルファイルの存在確認
-            if (!await CheckModelFilesAsync(modelPath, isFilePath))
+            if (!CheckModelFiles(modelPath, isFilePath))
             {
                 string errorMsg = "モデルファイルが見つかりません";
                 Log.Error(TAG, errorMsg);
@@ -708,10 +703,8 @@ public class SherpaRealtimeService : IDisposable
     /// <summary>
     /// モデルファイルの存在を確認
     /// </summary>
-    private async Task<bool> CheckModelFilesAsync(string modelPath, bool isFilePath)
+    private bool CheckModelFiles(string modelPath, bool isFilePath)
     {
-        await Task.CompletedTask; // 非同期メソッドのため
-
         try
         {
             Log.Info(TAG, $"モデルファイル確認: {modelPath}");
@@ -815,24 +808,47 @@ public class SherpaRealtimeService : IDisposable
         }
     }
 
+    /// <summary>
+    /// リソースを解放（IDisposable実装）
+    /// </summary>
     public void Dispose()
     {
-        StopListening();
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
 
-        // Sherpa-ONNXリソースを解放
-        DisposeRecognizer();
-
-        if (_audioRecord != null)
+    /// <summary>
+    /// リソース解放の実装
+    /// </summary>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (disposing)
         {
-            if (_audioRecord.State == State.Initialized)
-            {
-                _audioRecord.Stop();
-            }
-            _audioRecord.Release();
-            _audioRecord.Dispose();
-            _audioRecord = null;
-        }
+            StopListening();
 
-        _isInitialized = false;
+            // Sherpa-ONNXリソースを解放
+            DisposeRecognizer();
+
+            if (_audioRecord != null)
+            {
+                if (_audioRecord.State == State.Initialized)
+                {
+                    _audioRecord.Stop();
+                }
+                _audioRecord.Release();
+                _audioRecord.Dispose();
+                _audioRecord = null;
+            }
+
+            _isInitialized = false;
+        }
+    }
+
+    /// <summary>
+    /// ファイナライザー（念のため）
+    /// </summary>
+    ~SherpaRealtimeService()
+    {
+        Dispose(false);
     }
 }

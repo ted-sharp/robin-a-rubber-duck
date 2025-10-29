@@ -1,4 +1,4 @@
-namespace Robin.Models;
+﻿namespace Robin.Models;
 
 /// <summary>
 /// LLMのシステムプロンプト定義

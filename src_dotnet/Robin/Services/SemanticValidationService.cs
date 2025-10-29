@@ -1,7 +1,7 @@
+﻿using System.Text.Json;
+using System.Text.Json.Serialization;
 using Android.Util;
 using Robin.Models;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace Robin.Services;
 
@@ -11,15 +11,17 @@ namespace Robin.Services;
 public class SemanticValidationService
 {
     private readonly OpenAIService? _llmService;
+    private readonly SettingsService? _settingsService;
 
     /// <summary>
     /// 意味妥当性判定完了時のイベント
     /// </summary>
     public event EventHandler<SemanticValidationResult>? ValidationComplete;
 
-    public SemanticValidationService(OpenAIService? llmService = null)
+    public SemanticValidationService(OpenAIService? llmService = null, SettingsService? settingsService = null)
     {
         _llmService = llmService;
+        _settingsService = settingsService;
     }
 
     /// <summary>
@@ -44,7 +46,12 @@ public class SemanticValidationService
         {
             // 意味検証用のシステムプロンプトに切り替え
             var originalPrompt = _llmService.GetSystemPrompt();
-            _llmService.SetSystemPrompt(SystemPrompts.PromptType.SemanticValidation);
+
+            // カスタムセマンティック検証プロンプットを優先的に使用
+            var semanticPrompt = GetSemanticValidationPrompt();
+            _llmService.SetSystemPrompt(semanticPrompt);
+            Log.Info("SemanticValidationService",
+                $"セマンティック検証プロンプットを適用: {(string.IsNullOrEmpty(semanticPrompt) ? "デフォルト" : "カスタム")}");
 
             // LLMに意味妥当性と誤認識修正をリクエスト
             var prompt = BuildValidationPrompt(recognizedText);
@@ -87,12 +94,15 @@ public class SemanticValidationService
             // エラー時も元のシステムプロンプトに戻す
             try
             {
-                var originalPrompt = _llmService.GetSystemPrompt();
-                _llmService.SetSystemPrompt(SystemPrompts.PromptType.Conversation);
+                if (_llmService != null)
+                {
+                    var originalPrompt = _llmService.GetSystemPrompt();
+                    _llmService.SetSystemPrompt(SystemPrompts.PromptType.Conversation);
+                }
             }
-            catch
+            catch (Exception restoreEx)
             {
-                // プロンプト復帰に失敗した場合でも処理を続行
+                Log.Warn("SemanticValidationService", $"プロンプト復帰エラー: {restoreEx.Message}");
             }
 
             return new SemanticValidationResult
@@ -102,6 +112,34 @@ public class SemanticValidationService
                 Feedback = $"判定エラー: {ex.Message}"
             };
         }
+    }
+
+    /// <summary>
+    /// セマンティック検証用プロンプットを取得（カスタム優先、なければデフォルト）
+    /// </summary>
+    private string GetSemanticValidationPrompt()
+    {
+        try
+        {
+            // SettingsService が初期化されていて、カスタムプロンプットが設定されている場合
+            if (_settingsService != null)
+            {
+                var promptSettings = _settingsService.LoadSystemPromptSettings();
+                if (promptSettings.UseCustomPrompts && !string.IsNullOrEmpty(promptSettings.SemanticValidationPrompt))
+                {
+                    Log.Debug("SemanticValidationService", "カスタム SemanticValidation プロンプットを使用");
+                    return promptSettings.SemanticValidationPrompt;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("SemanticValidationService", $"カスタムプロンプット読み込みエラー: {ex.Message}");
+        }
+
+        // デフォルトプロンプットを使用
+        Log.Debug("SemanticValidationService", "デフォルト SemanticValidation プロンプットを使用");
+        return SystemPrompts.GetSystemPrompt(SystemPrompts.PromptType.SemanticValidation);
     }
 
     /// <summary>

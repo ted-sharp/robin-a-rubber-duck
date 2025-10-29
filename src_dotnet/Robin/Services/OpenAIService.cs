@@ -8,8 +8,9 @@ namespace Robin.Services;
 
 public class OpenAIService
 {
+    private const string OpenAIBaseAddress = "https://api.openai.com/v1/";
+
     private readonly HttpClient _httpClient;
-    private readonly string _apiKey;
     private readonly string _model;
     private readonly string _baseAddress;
     private readonly string _provider; // "openai" or "lm-studio"
@@ -20,16 +21,15 @@ public class OpenAIService
     /// </summary>
     public OpenAIService(string apiKey, string model = "gpt-4")
     {
-        _apiKey = apiKey;
         _model = model;
         _provider = "openai";
-        _baseAddress = "https://api.openai.com/v1/";
+        _baseAddress = OpenAIBaseAddress;
         _httpClient = new HttpClient
         {
             BaseAddress = new Uri(_baseAddress),
             Timeout = TimeSpan.FromSeconds(60)
         };
-        _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
+        _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
         Log.Info("OpenAIService", $"初期化完了 [OpenAI] - Model: {_model}");
     }
 
@@ -38,7 +38,6 @@ public class OpenAIService
     /// </summary>
     public OpenAIService(string endpoint, string model, bool isLMStudio)
     {
-        _apiKey = "lm-studio"; // LM StudioはAPIキー不要
         _model = model;
         _provider = "lm-studio";
         _baseAddress = endpoint.TrimEnd('/') + "/v1/";
@@ -48,10 +47,6 @@ public class OpenAIService
             Timeout = TimeSpan.FromSeconds(60)
         };
         // LM Studioの場合はAuthorizationヘッダーは不要
-        if (!isLMStudio)
-        {
-            _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_apiKey}");
-        }
 
         Log.Info("OpenAIService", $"初期化完了 [LM Studio] - BaseAddress: {_baseAddress}, Model: {_model}");
     }
@@ -63,7 +58,6 @@ public class OpenAIService
     {
         _provider = provider.ToLower();
         _model = model;
-        _apiKey = apiKey ?? "default";
 
         _httpClient = new HttpClient
         {
@@ -72,7 +66,7 @@ public class OpenAIService
 
         if (_provider == "openai")
         {
-            _baseAddress = "https://api.openai.com/v1/";
+            _baseAddress = OpenAIBaseAddress;
             if (string.IsNullOrWhiteSpace(apiKey))
             {
                 throw new ArgumentException("OpenAI APIキーが必要です", nameof(apiKey));
@@ -147,7 +141,7 @@ public class OpenAIService
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "JSON models are preserved")]
-    private HttpContent BuildRequest(List<Message> conversationHistory)
+    private StringContent BuildRequest(List<Message> conversationHistory)
     {
         var apiMessages = new List<ApiMessage>
         {
@@ -200,8 +194,10 @@ public class OpenAIService
     /// </summary>
     public string GetSystemPrompt() => _systemPrompt;
 
-    // モック用: APIキーなしでテスト応答を返す
-    public async Task<string> SendMessageMockAsync(string userMessage)
+    /// <summary>
+    /// モック用: APIキーなしでテスト応答を返す
+    /// </summary>
+    public static async Task<string> SendMessageMockAsync(string userMessage)
     {
         await Task.Delay(1000); // API呼び出しをシミュレート
 

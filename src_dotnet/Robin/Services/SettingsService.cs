@@ -1,7 +1,7 @@
+﻿using System.Text.Json;
 using Android.Content;
 using Android.Util;
 using Robin.Models;
-using System.Text.Json;
 
 namespace Robin.Services;
 
@@ -29,6 +29,9 @@ public class SettingsService
     private const string ConversationPromptKey = "conversation_prompt";
     private const string SemanticValidationPromptKey = "semantic_validation_prompt";
     private const string UseCustomPromptsKey = "use_custom_prompts";
+
+    // SharedPreferences サイズ制限（推奨値：1個の設定キーあたり最大1MB）
+    private const long MaxPromptSizeBytes = 1024 * 1024; // 1MB
 
     // 旧互換性のための設定キー
     private const string LMStudioEndpointKey = "lm_studio_endpoint";
@@ -159,24 +162,99 @@ public class SettingsService
     /// </summary>
     public void ApplyConfiguration(Configuration config)
     {
-        if (config?.LLMSettings != null)
+        try
         {
-            var provider = config.LLMSettings.Provider ?? "lm-studio";
-            var settings = new LLMProviderSettings(
-                provider,
-                config.LLMSettings.Endpoint ?? "http://192.168.0.7:1234",
-                config.LLMSettings.ModelName ?? "gpt-3.5-turbo",
-                config.LLMSettings.ApiKey,
-                config.LLMSettings.IsEnabled
-            );
-            SaveLLMProviderSettings(settings);
-            Log.Info("SettingsService", $"LLM設定を適用しました [{provider}]");
+            if (config?.LLMSettings != null)
+            {
+                var provider = config.LLMSettings.Provider ?? "lm-studio";
+                var settings = new LLMProviderSettings(
+                    provider,
+                    config.LLMSettings.Endpoint ?? "http://192.168.0.7:1234",
+                    config.LLMSettings.ModelName ?? "gpt-3.5-turbo",
+                    config.LLMSettings.ApiKey,
+                    config.LLMSettings.IsEnabled
+                );
+                SaveLLMProviderSettings(settings);
+                Log.Info("SettingsService", $"LLM設定を適用しました [{provider}]");
+            }
+
+            if (config?.SystemPromptSettings != null)
+            {
+                // systemPromptSettings が部分的に設定されている場合もチェック
+                if (ValidateSystemPromptSettings(config.SystemPromptSettings))
+                {
+                    SaveSystemPromptSettings(config.SystemPromptSettings);
+                    Log.Info("SettingsService", $"システムプロンプント設定を適用しました");
+                }
+                else
+                {
+                    Log.Warn("SettingsService", "システムプロンプト設定が検証に失敗、適用をスキップ");
+                }
+            }
+            else
+            {
+                Log.Debug("SettingsService", "JSON設定ファイルにシステムプロンプト設定が含まれていません");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SettingsService", $"設定適用エラー: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// JSON から読み込んだシステムプロンプト設定を検証
+    /// </summary>
+    private bool ValidateSystemPromptSettings(SystemPromptSettings? settings)
+    {
+        if (settings == null)
+        {
+            Log.Warn("SettingsService", "システムプロンプト設定が null");
+            return false;
         }
 
-        if (config?.SystemPromptSettings != null)
+        try
         {
-            SaveSystemPromptSettings(config.SystemPromptSettings);
-            Log.Info("SettingsService", $"システムプロンプト設定を適用しました");
+            // useCustomPrompts が false の場合は検証をスキップ
+            if (!settings.UseCustomPrompts)
+            {
+                Log.Debug("SettingsService", "UseCustomPrompts=false のため、プロンプット検証をスキップ");
+                return true;
+            }
+
+            // ConversationPrompt の検証
+            if (!string.IsNullOrEmpty(settings.ConversationPrompt))
+            {
+                var convBytes = System.Text.Encoding.UTF8.GetByteCount(settings.ConversationPrompt);
+                if (convBytes > MaxPromptSizeBytes)
+                {
+                    Log.Error("SettingsService",
+                        $"JSON Conversation プロンプットサイズ超過: {convBytes} > {MaxPromptSizeBytes}");
+                    return false;
+                }
+                Log.Debug("SettingsService", $"JSON Conversation プロンプット検証成功: {convBytes} バイト");
+            }
+
+            // SemanticValidationPrompt の検証
+            if (!string.IsNullOrEmpty(settings.SemanticValidationPrompt))
+            {
+                var semBytes = System.Text.Encoding.UTF8.GetByteCount(settings.SemanticValidationPrompt);
+                if (semBytes > MaxPromptSizeBytes)
+                {
+                    Log.Error("SettingsService",
+                        $"JSON SemanticValidation プロンプットサイズ超過: {semBytes} > {MaxPromptSizeBytes}");
+                    return false;
+                }
+                Log.Debug("SettingsService", $"JSON SemanticValidation プロンプット検証成功: {semBytes} バイト");
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SettingsService", $"システムプロンプト設定検証エラー: {ex.Message}");
+            return false;
         }
     }
 
@@ -241,35 +319,98 @@ public class SettingsService
     }
 
     /// <summary>
-    /// システムプロンプト設定を保存
+    /// システムプロンプト設定を保存（サイズチェック付き）
     /// </summary>
     public void SaveSystemPromptSettings(SystemPromptSettings settings)
     {
-        var editor = _preferences.Edit();
-        if (editor != null)
+        try
         {
-            editor.PutString(ConversationPromptKey, settings.ConversationPrompt ?? "");
-            editor.PutString(SemanticValidationPromptKey, settings.SemanticValidationPrompt ?? "");
-            editor.PutBoolean(UseCustomPromptsKey, settings.UseCustomPrompts);
-            editor.Commit();
-            Log.Info("SettingsService", $"システムプロンプト設定を保存（カスタムプロンプト使用: {settings.UseCustomPrompts}）");
+            // 各プロンプットのサイズをチェック
+            var conversationPrompt = settings.ConversationPrompt ?? "";
+            var semanticValidationPrompt = settings.SemanticValidationPrompt ?? "";
+
+            var convBytes = System.Text.Encoding.UTF8.GetByteCount(conversationPrompt);
+            var semBytes = System.Text.Encoding.UTF8.GetByteCount(semanticValidationPrompt);
+
+            // サイズログを出力
+            Log.Debug("SettingsService",
+                $"プロンプットサイズ - Conversation: {convBytes} バイト ({conversationPrompt.Length} 文字), " +
+                $"SemanticValidation: {semBytes} バイト ({semanticValidationPrompt.Length} 文字)");
+
+            // 個別のサイズチェック
+            if (convBytes > MaxPromptSizeBytes)
+            {
+                Log.Error("SettingsService",
+                    $"Conversation プロンプットが大きすぎます（{convBytes} > {MaxPromptSizeBytes} バイト）");
+                throw new ArgumentException(
+                    $"Conversation プロンプットが大きすぎます（最大 1MB）");
+            }
+
+            if (semBytes > MaxPromptSizeBytes)
+            {
+                Log.Error("SettingsService",
+                    $"SemanticValidation プロンプットが大きすぎます（{semBytes} > {MaxPromptSizeBytes} バイト）");
+                throw new ArgumentException(
+                    $"SemanticValidation プロンプットが大きすぎます（最大 1MB）");
+            }
+
+            var editor = _preferences.Edit();
+            if (editor != null)
+            {
+                editor.PutString(ConversationPromptKey, conversationPrompt);
+                editor.PutString(SemanticValidationPromptKey, semanticValidationPrompt);
+                editor.PutBoolean(UseCustomPromptsKey, settings.UseCustomPrompts);
+                editor.Commit();
+
+                Log.Info("SettingsService",
+                    $"システムプロンプト設定を保存成功 - " +
+                    $"カスタムプロンプト使用: {settings.UseCustomPrompts}, " +
+                    $"合計サイズ: {convBytes + semBytes} バイト");
+            }
+        }
+        catch (ArgumentException ex)
+        {
+            Log.Error("SettingsService", $"プロンプット設定保存エラー（検証失敗）: {ex.Message}");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SettingsService", $"プロンプット設定保存エラー（予期しないエラー）: {ex.Message}");
+            throw;
         }
     }
 
     /// <summary>
-    /// システムプロンプト設定を読み込む
+    /// システムプロンプト設定を読み込む（ログ付き）
     /// </summary>
     public SystemPromptSettings LoadSystemPromptSettings()
     {
-        var conversationPrompt = _preferences.GetString(ConversationPromptKey, "") ?? "";
-        var semanticValidationPrompt = _preferences.GetString(SemanticValidationPromptKey, "") ?? "";
-        var useCustomPrompts = _preferences.GetBoolean(UseCustomPromptsKey, false);
+        try
+        {
+            var conversationPrompt = _preferences.GetString(ConversationPromptKey, "") ?? "";
+            var semanticValidationPrompt = _preferences.GetString(SemanticValidationPromptKey, "") ?? "";
+            var useCustomPrompts = _preferences.GetBoolean(UseCustomPromptsKey, false);
 
-        return new SystemPromptSettings(
-            string.IsNullOrEmpty(conversationPrompt) ? null : conversationPrompt,
-            string.IsNullOrEmpty(semanticValidationPrompt) ? null : semanticValidationPrompt,
-            useCustomPrompts
-        );
+            var convBytes = System.Text.Encoding.UTF8.GetByteCount(conversationPrompt);
+            var semBytes = System.Text.Encoding.UTF8.GetByteCount(semanticValidationPrompt);
+
+            Log.Debug("SettingsService",
+                $"システムプロンプト設定を読み込み - " +
+                $"カスタム使用: {useCustomPrompts}, " +
+                $"Conversation: {convBytes} バイト ({conversationPrompt.Length} 文字), " +
+                $"SemanticValidation: {semBytes} バイト ({semanticValidationPrompt.Length} 文字)");
+
+            return new SystemPromptSettings(
+                string.IsNullOrEmpty(conversationPrompt) ? null : conversationPrompt,
+                string.IsNullOrEmpty(semanticValidationPrompt) ? null : semanticValidationPrompt,
+                useCustomPrompts
+            );
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SettingsService", $"システムプロンプト設定読み込みエラー: {ex.Message}");
+            throw;
+        }
     }
 
     /// <summary>
