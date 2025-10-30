@@ -62,6 +62,9 @@ public class SherpaRealtimeService : IDisposable
 
     // ===== Sherpa-ONNX 認識エンジン =====
     private OfflineRecognizer? _recognizer;
+    private OnlineRecognizer? _onlineRecognizer;
+    private OnlineStream? _onlineStream;
+    private bool _isStreamingModel = false; // true: ストリーミングモデル, false: オフラインモデル
     private readonly List<float> _audioBuffer = new List<float>();
     private readonly object _bufferLock = new object();
     private string _selectedLanguage = "ja"; // デフォルト言語は日本語
@@ -215,6 +218,60 @@ public class SherpaRealtimeService : IDisposable
     }
 
     /// <summary>
+    /// ストリーミングZipformerモデル用の設定を作成 (Online, リアルタイムストリーミング)
+    /// </summary>
+    private OnlineRecognizerConfig CreateStreamingZipformerConfig(string pathPrefix)
+    {
+        string encoderFile = $"{pathPrefix}/encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx";
+        string decoderFile = $"{pathPrefix}/decoder-epoch-75-avg-11-chunk-16-left-128.onnx";
+        string joinerFile = $"{pathPrefix}/joiner-epoch-75-avg-11-chunk-16-left-128.int8.onnx";
+        string tokensFile = $"{pathPrefix}/tokens.txt";
+
+        Log.Info(TAG, $"モデル設定 (Streaming Zipformer Transducer):");
+        Log.Info(TAG, $"  - Encoder: {encoderFile}");
+        Log.Info(TAG, $"  - Decoder: {decoderFile}");
+        Log.Info(TAG, $"  - Joiner: {joinerFile}");
+        Log.Info(TAG, $"  - Tokens: {tokensFile}");
+
+        var transducerConfig = new OnlineTransducerModelConfig
+        {
+            Encoder = encoderFile,
+            Decoder = decoderFile,
+            Joiner = joinerFile
+        };
+
+        var modelConfig = new OnlineModelConfig();
+        modelConfig.Transducer = transducerConfig;
+        modelConfig.Tokens = tokensFile;
+        modelConfig.NumThreads = 4;
+        modelConfig.Debug = false;
+        modelConfig.ModelType = "zipformer2";
+
+        var featConfig = new FeatureConfig
+        {
+            SampleRate = SampleRate,
+            FeatureDim = 80
+        };
+
+        // エンドポイント設定（発話区切り検出）
+        var endpointConfig = new EndpointConfig
+        {
+            Rule1 = new EndpointRule(false, 2.4f, 0.0f),
+            Rule2 = new EndpointRule(true, 1.2f, 0.0f),
+            Rule3 = new EndpointRule(false, 0.0f, 300.0f)
+        };
+
+        return new OnlineRecognizerConfig
+        {
+            FeatConfig = featConfig,
+            ModelConfig = modelConfig,
+            DecodingMethod = "greedy_search", // ストリーミングではgreedy_searchを推奨
+            EnableEndpoint = true, // ストリーミングでは発話区切り検出を有効化
+            EndpointConfig = endpointConfig
+        };
+    }
+
+    /// <summary>
     /// Whisperモデル用の設定を作成 (Offline, 非ストリーミング)
     /// </summary>
     private OfflineRecognizerConfig CreateWhisperConfig(string pathPrefix)
@@ -331,64 +388,77 @@ public class SherpaRealtimeService : IDisposable
                 files = _context.Assets?.List(modelPath) ?? Array.Empty<string>();
             }
 
-            OfflineRecognizerConfig config;
-
             // ファイルパターンでモデルタイプを判定
             bool hasEncoderDecoder = files.Any(f => f?.Contains("encoder") == true) &&
                                      files.Any(f => f?.Contains("decoder") == true);
             bool hasJoiner = files.Any(f => f?.Contains("joiner") == true);
             bool hasModelOnnx = files.Any(f => f?.Equals("model.int8.onnx", StringComparison.OrdinalIgnoreCase) == true);
             bool hasWhisperTokens = files.Any(f => f?.Equals("tiny-tokens.txt", StringComparison.OrdinalIgnoreCase) == true);
+            bool hasStreamingEncoder = files.Any(f => f?.Contains("chunk-16-left-128") == true);
 
-            if (hasEncoderDecoder && hasJoiner)
+            // ストリーミングモデルの判定と初期化
+            if (hasEncoderDecoder && hasJoiner && hasStreamingEncoder)
             {
-                Log.Info(TAG, "モデルタイプ: Zipformer Transducer");
-                config = CreateZipformerConfig(pathPrefix);
+                Log.Info(TAG, "モデルタイプ: Streaming Zipformer Transducer");
+                _isStreamingModel = true;
+                var onlineConfig = CreateStreamingZipformerConfig(pathPrefix);
+
+                Log.Info(TAG, "OnlineRecognizer作成中...");
+                _onlineRecognizer = new OnlineRecognizer(_context.Assets, onlineConfig);
+                _onlineStream = _onlineRecognizer.CreateStream(""); // hotwordsパラメータは空文字列
+                Log.Info(TAG, "OnlineRecognizer作成完了");
+            }
+            else if (hasEncoderDecoder && hasJoiner)
+            {
+                Log.Info(TAG, "モデルタイプ: Zipformer Transducer (Offline)");
+                _isStreamingModel = false;
+                OfflineRecognizerConfig config = CreateZipformerConfig(pathPrefix);
+                _recognizer = new OfflineRecognizer(_context.Assets, config);
+                Log.Info(TAG, "OfflineRecognizer作成完了");
             }
             else if (hasWhisperTokens && hasEncoderDecoder)
             {
-                Log.Info(TAG, "モデルタイプ: Whisper");
-                config = CreateWhisperConfig(pathPrefix);
+                Log.Info(TAG, "モデルタイプ: Whisper (Offline)");
+                _isStreamingModel = false;
+                OfflineRecognizerConfig config = CreateWhisperConfig(pathPrefix);
+                _recognizer = new OfflineRecognizer(_context.Assets, config);
+                Log.Info(TAG, "OfflineRecognizer作成完了");
             }
             else if (hasModelOnnx && files.Any(f => f?.Equals("tokens.txt", StringComparison.OrdinalIgnoreCase) == true))
             {
+                _isStreamingModel = false;
+                OfflineRecognizerConfig config;
+
                 // SenseVoiceまたはNemoの判定（モデル名から推測）
                 if (modelPath.Contains("sense-voice", StringComparison.OrdinalIgnoreCase))
                 {
-                    Log.Info(TAG, "モデルタイプ: SenseVoice");
+                    Log.Info(TAG, "モデルタイプ: SenseVoice (Offline)");
                     config = CreateSenseVoiceConfig(pathPrefix);
                 }
                 else if (modelPath.Contains("nemo", StringComparison.OrdinalIgnoreCase) ||
                          modelPath.Contains("parakeet", StringComparison.OrdinalIgnoreCase))
                 {
-                    Log.Info(TAG, "モデルタイプ: Nemo CTC");
+                    Log.Info(TAG, "モデルタイプ: Nemo CTC (Offline)");
                     config = CreateNemoConfig(pathPrefix);
                 }
                 else
                 {
                     // デフォルトはSenseVoiceとして扱う
-                    Log.Info(TAG, "モデルタイプ: model.int8.onnx - SenseVoiceとして扱う");
+                    Log.Info(TAG, "モデルタイプ: model.int8.onnx - SenseVoiceとして扱う (Offline)");
                     config = CreateSenseVoiceConfig(pathPrefix);
                 }
+
+                _recognizer = new OfflineRecognizer(_context.Assets, config);
+                Log.Info(TAG, "OfflineRecognizer作成完了");
             }
             else
             {
-                Log.Info(TAG, "モデルタイプ: 判定不可、Zipformerとして扱う");
-                config = CreateZipformerConfig(pathPrefix);
+                Log.Info(TAG, "モデルタイプ: 判定不可、Zipformer (Offline) として扱う");
+                _isStreamingModel = false;
+                OfflineRecognizerConfig config = CreateZipformerConfig(pathPrefix);
+                _recognizer = new OfflineRecognizer(_context.Assets, config);
+                Log.Info(TAG, "OfflineRecognizer作成完了");
             }
-
-            Log.Info(TAG, "OfflineRecognizer作成中...");
-
-            InitializationProgress?.Invoke(this, new InitializationProgressEventArgs
-            {
-                Status = "音声認識エンジンを初期化中...",
-                ProgressPercentage = 60
-            });
-
-            // Sherpa-ONNX Android版はAssetManagerを渡すが、
-            // モデルパスに絶対パスを指定すればファイルシステムから読み込む
-            _recognizer = new OfflineRecognizer(_context.Assets, config);
-            Log.Info(TAG, "OfflineRecognizer作成完了");
 
             InitializationProgress?.Invoke(this, new InitializationProgressEventArgs
             {
@@ -477,7 +547,8 @@ public class SherpaRealtimeService : IDisposable
         }
 
         string verboseFlag = VerboseLoggingEnabled ? "✓詳細ログON" : "";
-        Log.Info(TAG, $"🎙️ 音声認識開始 (連続モード, チャンク={ChunkDurationSeconds}秒, スレッド=4, デコード=beam_search) {verboseFlag}");
+        string modelType = _isStreamingModel ? "ストリーミング" : $"オフライン(チャンク={ChunkDurationSeconds}秒)";
+        Log.Info(TAG, $"🎙️ 音声認識開始 (連続モード, モデル={modelType}, スレッド=4, デコード=beam_search) {verboseFlag}");
 
         // 前のバッファをクリア（前の認識データが混在するのを防ぐ）
         lock (_bufferLock)
@@ -535,68 +606,13 @@ public class SherpaRealtimeService : IDisposable
     {
         try
         {
-            int bufferSize = SampleRate * BufferSizeInMs / 1000;
-            short[] audioBuffer = new short[bufferSize];
-            float[] floatBuffer = new float[bufferSize];
-
-            while (_isListening && _audioRecord != null)
+            if (_isStreamingModel)
             {
-                // マイクから音声データを読み込み
-                int readCount = _audioRecord.Read(audioBuffer, 0, audioBuffer.Length);
-
-                if (readCount > 0)
-                {
-                    // short[] を float[] に変換（Sherpa-ONNXはfloat配列を期待）
-                    for (int i = 0; i < readCount; i++)
-                    {
-                        floatBuffer[i] = audioBuffer[i] / 32768.0f; // 正規化 [-1.0, 1.0]
-                    }
-
-                    // 音声バッファに追加
-                    lock (_bufferLock)
-                    {
-                        for (int i = 0; i < readCount; i++)
-                        {
-                            _audioBuffer.Add(floatBuffer[i]);
-                        }
-
-                        // 一定時間（ChunkDurationSeconds）分のデータが溜まったら認識実行
-                        int chunkSize = SampleRate * ChunkDurationSeconds;
-                        if (_audioBuffer.Count >= chunkSize)
-                        {
-                            // チャンクを取得（全体をコピー）
-                            var chunk = _audioBuffer.Take(chunkSize).ToArray();
-
-                            // 音声レベルの計算（デバッグ用）
-                            float maxAmp = chunk.Max(Math.Abs);
-                            float avgAmp = chunk.Average(Math.Abs);
-
-                            // スライディングウィンドウ: オーバーラップ分を残して古いデータを削除
-                            int removeCount = (int)(chunkSize * (1.0f - ChunkOverlapRatio));
-                            _audioBuffer.RemoveRange(0, removeCount);
-
-                            if (VerboseLoggingEnabled)
-                            {
-                                Log.Info(TAG, $"📊 チャンク処理: {chunk.Length}サンプル | レベル max={maxAmp:F4}, avg={avgAmp:F4} | バッファ残={_audioBuffer.Count}");
-                            }
-
-                            // 非同期で認識実行（UIスレッドをブロックしない）
-                            Task.Run(() =>
-                            {
-                                ProcessAudioChunk(chunk);
-
-                                // ユーザーがマイクボタンをONのままなら、自動で次の認識に進む
-                                if (_isListening)
-                                {
-                                    Log.Info(TAG, "🔄 連続認識: 次の認識に進みます");
-                                }
-                            });
-                        }
-                    }
-                }
-
-                // 短い待機（CPUを占有しないため）
-                Thread.Sleep(10);
+                ProcessStreamingAudioLoop();
+            }
+            else
+            {
+                ProcessOfflineAudioLoop();
             }
         }
         catch (Exception ex)
@@ -605,6 +621,150 @@ public class SherpaRealtimeService : IDisposable
             Log.Error(TAG, errorMsg);
             Log.Error(TAG, $"StackTrace: {ex.StackTrace}");
             Error?.Invoke(this, errorMsg);
+        }
+    }
+
+    /// <summary>
+    /// ストリーミングモデル用の音声処理ループ
+    /// </summary>
+    private void ProcessStreamingAudioLoop()
+    {
+        int bufferSize = SampleRate * BufferSizeInMs / 1000;
+        short[] audioBuffer = new short[bufferSize];
+        float[] floatBuffer = new float[bufferSize];
+        int frameCount = 0;
+
+        Log.Info(TAG, $"🎙️ ストリーミング処理ループ開始 (バッファサイズ={bufferSize})");
+
+        while (_isListening && _audioRecord != null && _onlineStream != null && _onlineRecognizer != null)
+        {
+            // マイクから音声データを読み込み
+            int readCount = _audioRecord.Read(audioBuffer, 0, audioBuffer.Length);
+
+            if (readCount > 0)
+            {
+                frameCount++;
+
+                // short[] を float[] に変換
+                for (int i = 0; i < readCount; i++)
+                {
+                    floatBuffer[i] = audioBuffer[i] / 32768.0f;
+                }
+
+                // ストリームに音声データを送信（リアルタイム）
+                // AcceptWaveform(float[] samples, int sampleRate)
+                _onlineStream.AcceptWaveform(floatBuffer, SampleRate);
+
+                // デコードを実行（ストリーミングでは定期的にデコード必要）
+                if (_onlineRecognizer.IsReady(_onlineStream))
+                {
+                    _onlineRecognizer.Decode(_onlineStream);
+                }
+
+                // 定期的に中間結果をログ出力（10フレームごと = 約100ms）
+                if (frameCount % 10 == 0)
+                {
+                    var partialResult = _onlineRecognizer.GetResult(_onlineStream);
+                    if (!string.IsNullOrEmpty(partialResult?.Text))
+                    {
+                        Log.Debug(TAG, $"📝 中間結果 (frame={frameCount}): 「{partialResult.Text}」");
+                    }
+                }
+
+                // 発話区切りを検出
+                if (_onlineRecognizer.IsEndpoint(_onlineStream))
+                {
+                    // 最終結果を取得
+                    var result = _onlineRecognizer.GetResult(_onlineStream);
+                    if (!string.IsNullOrEmpty(result?.Text))
+                    {
+                        Log.Info(TAG, $"✅ 【ストリーミング最終結果】「{result.Text}」");
+                        FinalResult?.Invoke(this, result.Text);
+                    }
+                    else
+                    {
+                        Log.Debug(TAG, "⚠️ エンドポイント検出されましたが、テキストが空です");
+                    }
+
+                    // ストリームをリセット（次の発話用）
+                    _onlineRecognizer.Reset(_onlineStream);
+                    frameCount = 0;
+                }
+            }
+
+            Thread.Sleep(10);
+        }
+
+        Log.Info(TAG, "🛑 ストリーミング処理ループ終了");
+    }
+
+    /// <summary>
+    /// オフラインモデル用の音声処理ループ（既存のチャンク処理）
+    /// </summary>
+    private void ProcessOfflineAudioLoop()
+    {
+        int bufferSize = SampleRate * BufferSizeInMs / 1000;
+        short[] audioBuffer = new short[bufferSize];
+        float[] floatBuffer = new float[bufferSize];
+
+        while (_isListening && _audioRecord != null)
+        {
+            // マイクから音声データを読み込み
+            int readCount = _audioRecord.Read(audioBuffer, 0, audioBuffer.Length);
+
+            if (readCount > 0)
+            {
+                // short[] を float[] に変換（Sherpa-ONNXはfloat配列を期待）
+                for (int i = 0; i < readCount; i++)
+                {
+                    floatBuffer[i] = audioBuffer[i] / 32768.0f; // 正規化 [-1.0, 1.0]
+                }
+
+                // 音声バッファに追加
+                lock (_bufferLock)
+                {
+                    for (int i = 0; i < readCount; i++)
+                    {
+                        _audioBuffer.Add(floatBuffer[i]);
+                    }
+
+                    // 一定時間（ChunkDurationSeconds）分のデータが溜まったら認識実行
+                    int chunkSize = SampleRate * ChunkDurationSeconds;
+                    if (_audioBuffer.Count >= chunkSize)
+                    {
+                        // チャンクを取得（全体をコピー）
+                        var chunk = _audioBuffer.Take(chunkSize).ToArray();
+
+                        // 音声レベルの計算（デバッグ用）
+                        float maxAmp = chunk.Max(Math.Abs);
+                        float avgAmp = chunk.Average(Math.Abs);
+
+                        // スライディングウィンドウ: オーバーラップ分を残して古いデータを削除
+                        int removeCount = (int)(chunkSize * (1.0f - ChunkOverlapRatio));
+                        _audioBuffer.RemoveRange(0, removeCount);
+
+                        if (VerboseLoggingEnabled)
+                        {
+                            Log.Info(TAG, $"📊 チャンク処理: {chunk.Length}サンプル | レベル max={maxAmp:F4}, avg={avgAmp:F4} | バッファ残={_audioBuffer.Count}");
+                        }
+
+                        // 非同期で認識実行（UIスレッドをブロックしない）
+                        Task.Run(() =>
+                        {
+                            ProcessAudioChunk(chunk);
+
+                            // ユーザーがマイクボタンをONのままなら、自動で次の認識に進む
+                            if (_isListening)
+                            {
+                                Log.Info(TAG, "🔄 連続認識: 次の認識に進みます");
+                            }
+                        });
+                    }
+                }
+            }
+
+            // 短い待機（CPUを占有しないため）
+            Thread.Sleep(10);
         }
     }
 
@@ -786,12 +946,28 @@ public class SherpaRealtimeService : IDisposable
     {
         try
         {
-            // 音声認識器を破棄
+            // オンラインストリームを破棄
+            if (_onlineStream != null)
+            {
+                _onlineStream.Dispose();
+                _onlineStream = null;
+                Log.Info(TAG, "OnlineStreamを破棄しました");
+            }
+
+            // オンライン認識器を破棄
+            if (_onlineRecognizer != null)
+            {
+                _onlineRecognizer.Dispose();
+                _onlineRecognizer = null;
+                Log.Info(TAG, "OnlineRecognizerを破棄しました");
+            }
+
+            // オフライン認識器を破棄
             if (_recognizer != null)
             {
                 _recognizer.Dispose();
                 _recognizer = null;
-                Log.Info(TAG, "認識器を破棄しました");
+                Log.Info(TAG, "OfflineRecognizerを破棄しました");
             }
 
             // オーディオバッファをクリア
@@ -801,6 +977,7 @@ public class SherpaRealtimeService : IDisposable
             }
 
             _isInitialized = false;
+            _isStreamingModel = false;
         }
         catch (Exception ex)
         {

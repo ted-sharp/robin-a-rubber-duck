@@ -21,6 +21,7 @@
   <ItemGroup>
     <PackageReference Include="Xamarin.Google.Android.Material" Version="1.12.0.1" />
     <PackageReference Include="SharpZipLib" Version="1.4.2" />
+    <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.41.1" />
   </ItemGroup>
 
   <!-- Sherpa-ONNX Android Library -->
@@ -31,6 +32,11 @@
   <!-- Network Security Configuration for Cleartext HTTP (LM Studio) -->
   <ItemGroup>
     <AndroidResource Include="Resources\xml\network_security_config.xml" />
+  </ItemGroup>
+
+  <!-- System Prompts JSON Configuration -->
+  <ItemGroup>
+    <AndroidAsset Include="Resources\raw\system_prompts.json" />
   </ItemGroup>
 
   <!-- Sherpa-ONNX Model Files (Conditional Assets) -->
@@ -62,6 +68,13 @@
   <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\models-prepared\sherpa-onnx-whisper-tiny')">
     <AndroidAsset Include="..\..\models-prepared\sherpa-onnx-whisper-tiny\**\*">
       <Link>assets\sherpa-onnx-whisper-tiny\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </AndroidAsset>
+  </ItemGroup>
+
+  <!-- Streaming Zipformer Multilingual Model -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\..\models-prepared\sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10')">
+    <AndroidAsset Include="..\..\models-prepared\sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10\**\*">
+      <Link>assets\sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10\%(RecursiveDir)%(Filename)%(Extension)</Link>
     </AndroidAsset>
   </ItemGroup>
 </Project>

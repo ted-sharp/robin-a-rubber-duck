@@ -525,6 +525,7 @@ Examples:
   ModelPrepTool --model zipformer-ja-reazonspeech
   ModelPrepTool --model whisper-tiny
   ModelPrepTool --model nemo-parakeet-cja
+  ModelPrepTool --model streaming-zipformer-multilingual
   ModelPrepTool --model qwen-2.5-0.5b
   ModelPrepTool --model qwen-2.5-1.5b-int4
   ModelPrepTool --model all
@@ -551,6 +552,7 @@ Available Model IDs:
     zipformer-ja-reazonspeech      Zipformer Japanese ReazonSpeech
     whisper-tiny                   Whisper Tiny (Multilingual, ~104MB)
     nemo-parakeet-cja              NeMo Parakeet CTC 0.6B Japanese (~625MB)
+    streaming-zipformer-multilingual  Streaming Zipformer (8 languages, ~247MB)
 
   Qwen (Text Inference):
     qwen-2.5-0.5b                  Qwen 2.5 0.5B (Lightweight, ~3GB)
@@ -579,6 +581,7 @@ Available Model IDs:
             "zipformer-ja-reazonspeech",
             "whisper-tiny",
             "nemo-parakeet-cja",
+            "streaming-zipformer-multilingual",
             "qwen-2.5-0.5b",
             "qwen-2.5-1.5b-int4"
         };

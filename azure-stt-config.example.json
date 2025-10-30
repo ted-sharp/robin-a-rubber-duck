@@ -1,0 +1,9 @@
+{
+  "SubscriptionKey": "your-azure-speech-subscription-key",
+  "Region": "japaneast",
+  "Language": "ja-JP",
+  "EndpointId": null,
+  "EnableDictation": false,
+  "EnableProfanityFilter": false,
+  "SpeechRecognitionLanguageAutoDetectionMode": 0
+}

@@ -25,6 +25,7 @@ public class MainActivity : AppCompatActivity
     private TextView? _statusText;
     private TextView? _welcomeMessageText;
     private View? _swipeHint;
+    private ImageView? _llmErrorIcon;
 
     private MessageAdapter? _messageAdapter;
     private ConversationService? _conversationService;
@@ -39,20 +40,31 @@ public class MainActivity : AppCompatActivity
     private readonly bool _useSherpaOnnx = true; // true: Sherpa-ONNX, false: Android標準
     private string? _currentModelName = null; // 現在のモデル名
     private string _selectedLanguage = "ja"; // 選択言語（デフォルト: 日本語）
+    private string? _azureSttConfigPath = null; // Azure STT設定ファイルパス
+    private AzureSttService? _azureSttService = null; // Azure STTサービス
 
-    // 利用可能なモデル
+    // LLMエラー状態管理
+    private bool _llmHasError = false; // LLM接続エラーが発生しているか
+    private bool _llmOnlyTranscriptionMode = false; // 音声認識のみモード（LLM無視）
+
+    // 利用可能なモデル (model-prep-config.jsonの並び順に合わせる)
     private readonly string[] _availableModels = new[]
     {
+        "azure-stt", // Azure Speech-to-Text API
+        "sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10",
         "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01",
-        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09",
         "sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8",
-        "sherpa-onnx-whisper-tiny"
+        "sherpa-onnx-whisper-tiny",
+        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"
     };
 
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
         SetContentView(Resource.Layout.activity_main);
+
+        // システムプロンプトをJSONから読み込み
+        SystemPrompts.LoadFromJson(this);
 
         InitializeViews();
         InitializeServices();
@@ -119,6 +131,13 @@ public class MainActivity : AppCompatActivity
         _statusText = FindViewById<TextView>(Resource.Id.status_text);
         _welcomeMessageText = FindViewById<TextView>(Resource.Id.welcome_message_text);
         _swipeHint = FindViewById(Resource.Id.swipe_hint);
+        _llmErrorIcon = FindViewById<ImageView>(Resource.Id.llm_error_icon);
+
+        // LLMエラーアイコンのタップイベント設定
+        if (_llmErrorIcon != null)
+        {
+            _llmErrorIcon.Click += OnLlmErrorIconClick;
+        }
     }
 
     private void InitializeServices()
@@ -135,6 +154,13 @@ public class MainActivity : AppCompatActivity
         _voiceInputService.RecognitionStopped += OnRecognitionStopped;
         _voiceInputService.RecognitionResult += OnRecognitionResult;
         _voiceInputService.RecognitionError += OnRecognitionError;
+
+        // Azure STTサービスの初期化（イベントハンドラーのみ設定、実際の初期化は設定ファイル選択時）
+        _azureSttService = new AzureSttService(this);
+        _azureSttService.RecognitionStarted += OnRecognitionStarted;
+        _azureSttService.RecognitionStopped += OnRecognitionStopped;
+        _azureSttService.RecognitionResult += OnRecognitionResult;
+        _azureSttService.RecognitionError += OnRecognitionError;
 
         // Sherpa-ONNXサービスの初期化
         InitializeSherpaService();
@@ -405,13 +431,15 @@ public class MainActivity : AppCompatActivity
         var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
         builder.SetTitle("音声認識モデルを選択");
 
-        // モデルの表示名と説明
+        // モデルの表示名とサイズ (model-prep-config.jsonの並び順に合わせる)
         var modelDisplayNames = new string[]
         {
-            "Zipformer Ja (高精度日本語)",
-            "SenseVoice (多言語)",
-            "Nemo CTC (日本語)",
-            "Whisper Tiny (多言語)"
+            "Azure STT (クラウドAPI) - オンライン専用",
+            "Streaming Zipformer (8言語) - 247MB",
+            "Zipformer Ja (高精度日本語) - 680MB",
+            "Nemo CTC (日本語) - 625MB",
+            "Whisper Tiny (多言語) - 104MB",
+            "SenseVoice (多言語) - 238MB"
         };
 
         // 現在のモデルのインデックスを取得
@@ -432,15 +460,20 @@ public class MainActivity : AppCompatActivity
         builder.SetSingleChoiceItems(modelDisplayNames, checkedItem, (sender, e) =>
         {
             var selectedModel = _availableModels[e.Which];
-            // SenseVoiceまたはWhisperの場合は言語選択ダイアログを表示
-            if (selectedModel.Contains("sense-voice") || selectedModel.Contains("whisper"))
+            dialog?.Dismiss();
+
+            // Azure STTの場合は設定ファイル選択ダイアログを表示
+            if (selectedModel == "azure-stt")
             {
-                dialog?.Dismiss();
+                ShowAzureSttConfigFileSelectionDialog();
+            }
+            // SenseVoiceまたはWhisperの場合は言語選択ダイアログを表示
+            else if (selectedModel.Contains("sense-voice") || selectedModel.Contains("whisper"))
+            {
                 ShowLanguageSelectionDialog(selectedModel);
             }
             else
             {
-                dialog?.Dismiss();
                 LoadModel(selectedModel);
             }
         });
@@ -452,6 +485,94 @@ public class MainActivity : AppCompatActivity
 
         dialog = builder.Create();
         dialog?.Show();
+    }
+
+    private void ShowAzureSttConfigFileSelectionDialog()
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("Azure STT設定ファイルを選択");
+
+        // /sdcard/Download/ ディレクトリから .json ファイルを検索
+        var downloadsPath = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDownloads)?.AbsolutePath;
+
+        if (string.IsNullOrEmpty(downloadsPath) || !Directory.Exists(downloadsPath))
+        {
+            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+            errorBuilder.SetTitle("エラー");
+            errorBuilder.SetMessage("Downloadフォルダにアクセスできません");
+            errorBuilder.SetPositiveButton("OK", (s, e) => { });
+            errorBuilder.Show();
+            return;
+        }
+
+        var jsonFiles = Directory.GetFiles(downloadsPath, "*.json");
+
+        if (jsonFiles.Length == 0)
+        {
+            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+            errorBuilder.SetTitle("設定ファイルが見つかりません");
+            errorBuilder.SetMessage($"Downloadフォルダに .json ファイルが見つかりません。\n\nパス: {downloadsPath}");
+            errorBuilder.SetPositiveButton("OK", (s, e) => { });
+            errorBuilder.Show();
+            return;
+        }
+
+        var fileNames = jsonFiles.Select(f => Path.GetFileName(f)).ToArray();
+
+        AndroidX.AppCompat.App.AlertDialog? dialog = null;
+        builder.SetItems(fileNames, (sender, e) =>
+        {
+            var selectedFilePath = jsonFiles[e.Which];
+            dialog?.Dismiss();
+            LoadAzureSttConfig(selectedFilePath);
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) =>
+        {
+            dialog?.Dismiss();
+        });
+
+        dialog = builder.Create();
+        dialog?.Show();
+    }
+
+    private void LoadAzureSttConfig(string configFilePath)
+    {
+        Task.Run(async () =>
+        {
+            try
+            {
+                // Azure STTサービスを初期化
+                _azureSttService?.Dispose();
+                _azureSttService = new AzureSttService(this);
+
+                var success = await _azureSttService.InitializeAsync(configFilePath);
+
+                RunOnUiThread(() =>
+                {
+                    if (success)
+                    {
+                        _azureSttConfigPath = configFilePath;
+                        _currentModelName = "azure-stt";
+                        _statusText?.SetText($"Azure STT設定読込完了: {Path.GetFileName(configFilePath)}", TextView.BufferType.Normal);
+                        Android.Util.Log.Info("MainActivity", $"Azure STT設定読込完了: {configFilePath}");
+                    }
+                    else
+                    {
+                        _statusText?.SetText("Azure STT設定読込失敗", TextView.BufferType.Normal);
+                        Android.Util.Log.Error("MainActivity", "Azure STT設定読込失敗");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                RunOnUiThread(() =>
+                {
+                    _statusText?.SetText($"Azure STT設定エラー: {ex.Message}", TextView.BufferType.Normal);
+                    Android.Util.Log.Error("MainActivity", $"Azure STT設定エラー: {ex.Message}");
+                });
+            }
+        });
     }
 
     private void ShowLanguageSelectionDialog(string modelName)
@@ -659,9 +780,26 @@ public class MainActivity : AppCompatActivity
         if (_micButton == null)
             return;
 
-        _micButton.Click += (sender, e) =>
+        _micButton.Click += async (sender, e) =>
         {
-            if (_useSherpaOnnx && _sherpaService != null)
+            // Azure STT使用時
+            if (_currentModelName == "azure-stt" && _azureSttService != null)
+            {
+                if (_azureSttService.IsListening)
+                {
+                    // 聴取中なら停止
+                    await _azureSttService.StopListeningAsync();
+                    UpdateMicButtonState();
+                }
+                else
+                {
+                    // 停止中なら開始
+                    await _azureSttService.StartListeningAsync();
+                    UpdateMicButtonState();
+                }
+            }
+            // Sherpa-ONNX使用時
+            else if (_useSherpaOnnx && _sherpaService != null)
             {
                 // Sherpa-ONNX使用時: 聴取状態をトグル
                 if (_sherpaService.IsListening)
@@ -975,6 +1113,14 @@ public class MainActivity : AppCompatActivity
                 return;
             }
 
+            // 音声認識のみモードの場合は、LLMをスキップ
+            if (_llmOnlyTranscriptionMode)
+            {
+                Android.Util.Log.Info("MainActivity", "音声認識のみモード: LLM処理をスキップ");
+                UpdateProcessingState(RobinProcessingState.Idle);
+                return;
+            }
+
             // 処理状態を更新：入力中（LLM レスポンス待機）
             UpdateProcessingState(RobinProcessingState.WaitingForResponse);
 
@@ -1017,7 +1163,9 @@ public class MainActivity : AppCompatActivity
         {
             Android.Util.Log.Error("MainActivity", $"LLM応答エラー: {ex.Message}");
             UpdateProcessingState(RobinProcessingState.Error, ex.Message);
-            ShowToast($"エラー: {ex.Message}");
+
+            // LLMエラーを表示（エラーマークを表示し、音声認識のみモードに切り替え）
+            ShowLlmError(ex.Message);
         }
     }
 
@@ -1117,8 +1265,13 @@ public class MainActivity : AppCompatActivity
         {
             bool isActive = false;
 
+            // Azure STT使用時
+            if (_currentModelName == "azure-stt" && _azureSttService != null)
+            {
+                isActive = _azureSttService.IsListening; // 聴取中なら赤色
+            }
             // Sherpa-ONNX使用時
-            if (_useSherpaOnnx && _sherpaService != null)
+            else if (_useSherpaOnnx && _sherpaService != null)
             {
                 isActive = _sherpaService.IsListening; // 聴取中なら赤色
             }
@@ -1252,5 +1405,51 @@ public class MainActivity : AppCompatActivity
         }
 
         base.OnDestroy();
+    }
+
+    /// <summary>
+    /// LLMエラーアイコンがクリックされた時の処理（再接続試行）
+    /// </summary>
+    private void OnLlmErrorIconClick(object? sender, EventArgs e)
+    {
+        // エラー状態をリセット
+        _llmHasError = false;
+        _llmOnlyTranscriptionMode = false;
+
+        // エラーアイコンを非表示
+        RunOnUiThread(() =>
+        {
+            if (_llmErrorIcon != null)
+            {
+                _llmErrorIcon.Visibility = ViewStates.Gone;
+            }
+        });
+
+        // LLMサービスを再初期化
+        InitializeLLMService();
+
+        // ユーザーに通知
+        Toast.MakeText(this, "LLM接続を再試行中...", ToastLength.Short)?.Show();
+    }
+
+    /// <summary>
+    /// LLMエラー状態を表示（エラーマークを表示し、音声認識のみモードに切り替え）
+    /// </summary>
+    private void ShowLlmError(string errorMessage)
+    {
+        _llmHasError = true;
+        _llmOnlyTranscriptionMode = true;
+
+        RunOnUiThread(() =>
+        {
+            // エラーアイコンを表示
+            if (_llmErrorIcon != null)
+            {
+                _llmErrorIcon.Visibility = ViewStates.Visible;
+            }
+
+            // ユーザーに通知（音声認識のみモードになったことを伝える）
+            Toast.MakeText(this, $"LLM接続エラー: {errorMessage}\n音声認識のみモードに切り替わりました", ToastLength.Long)?.Show();
+        });
     }
 }

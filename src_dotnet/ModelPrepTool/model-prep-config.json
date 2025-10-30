@@ -2,17 +2,20 @@
   "enabledModels": [
     // Sherpa-ONNX Speech Recognition Models
 
-    // Multilingual (238 MB) - Japanese, Chinese, English, Korean, Cantonese
-    //"sense-voice-ja-zh-en",
+    // Streaming Multilingual (247 MB) - 8 languages, real-time optimized
+    "streaming-zipformer-multilingual",
 
     // Japanese only (680 MB) - High accuracy
-    "zipformer-ja-reazonspeech",
+    "zipformer-ja-reazonspeech"
+
+    // Japanese (625 MB) - High accuracy model
+    // "nemo-parakeet-cja",
 
     // Multilingual (104 MB) - Lightweight alternative
     // "whisper-tiny",
 
-    // Japanese (625 MB) - High accuracy model
-    // "nemo-parakeet-cja",
+    // Multilingual (238 MB) - Japanese, Chinese, English, Korean, Cantonese
+    //"sense-voice-ja-zh-en",
 
     // Qwen Text Inference Models
 

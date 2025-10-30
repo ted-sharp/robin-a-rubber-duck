@@ -84,6 +84,21 @@
         android:src="@android:drawable/ic_btn_speak_now"
         app:tint="@android:color/white" />
 
+    <!-- LLMエラーマーク（右上隅） -->
+    <ImageView
+        android:id="@+id/llm_error_icon"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="16dp"
+        android:src="@android:drawable/stat_notify_error"
+        android:contentDescription="LLM接続エラー"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="8dp"
+        android:visibility="gone"
+        android:clickable="true"
+        android:focusable="true" />
+
     <!-- スワイプヒント：山形矢印 -->
     <Robin.Views.SwipeHintView
         android:id="@+id/swipe_hint"

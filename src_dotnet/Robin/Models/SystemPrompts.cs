@@ -1,16 +1,21 @@
-﻿namespace Robin.Models;
+﻿using Android.Content;
+using System.Text.Json;
+
+namespace Robin.Models;
 
 /// <summary>
 /// LLMのシステムプロンプト定義
 /// 通常の会話（ラバーダックデバッグ）と意味検証の2種類を提供
+/// JSONファイルから読み込み、フォールバック用のデフォルトプロンプトを保持
 /// </summary>
 public static class SystemPrompts
 {
+    private static SystemPromptsConfig? _loadedConfig;
+
     /// <summary>
-    /// 通常の会話用システムプロンプト
-    /// ラバーダックデバッグ型の相談相手として機能
+    /// デフォルトの通常会話用システムプロンプト（フォールバック用）
     /// </summary>
-    public const string ConversationSystemPrompt = @"あなたはRobinという名前のAIアシスタントです。ユーザーとの会話を通じて、プログラミング、技術的な問題、日常的な悩みなどを相談できるラバーダック的な存在です。
+    private const string DefaultConversationSystemPrompt = @"あなたはRobinという名前のAIアシスタントです。ユーザーとの会話を通じて、プログラミング、技術的な問題、日常的な悩みなどを相談できるラバーダック的な存在です。
 
 ## あなたの特徴と役割
 
@@ -54,10 +59,9 @@ Robin: 「非同期処理がうまくいかないですか。つまり、期待�
 ";
 
     /// <summary>
-    /// 意味検証と音声認識補正用システムプロンプト
-    /// 音声認識結果の妥当性判定と誤認識の修正に特化
+    /// デフォルトの意味検証と音声認識補正用システムプロンプト（フォールバック用）
     /// </summary>
-    public const string SemanticValidationSystemPrompt = @"あなたは音声認識の結果を分析し、意味的な妥当性を判定し、音声認識の誤りを修正する専門家です。
+    private const string DefaultSemanticValidationSystemPrompt = @"あなたは音声認識の結果を分析し、意味的な妥当性を判定し、音声認識の誤りを修正する専門家です。
 
 ## 役割
 与えられた音声認識結果のテキストが、:
@@ -145,6 +149,52 @@ JSON形式で必ず以下の構造で応答してください：
 }
 ```
 ";
+
+    /// <summary>
+    /// JSONファイルからシステムプロンプトを読み込む
+    /// </summary>
+    public static void LoadFromJson(Context context)
+    {
+        try
+        {
+            using var stream = context.Assets?.Open("system_prompts.json");
+            if (stream == null)
+            {
+                Android.Util.Log.Warn("SystemPrompts", "system_prompts.json not found, using defaults");
+                return;
+            }
+
+            using var reader = new StreamReader(stream);
+            var json = reader.ReadToEnd();
+            _loadedConfig = JsonSerializer.Deserialize<SystemPromptsConfig>(json);
+
+            if (_loadedConfig != null)
+            {
+                Android.Util.Log.Info("SystemPrompts", "Successfully loaded system prompts from JSON");
+            }
+            else
+            {
+                Android.Util.Log.Warn("SystemPrompts", "Failed to deserialize system_prompts.json, using defaults");
+            }
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error("SystemPrompts", $"Error loading system_prompts.json: {ex.Message}");
+            _loadedConfig = null;
+        }
+    }
+
+    /// <summary>
+    /// 通常の会話用システムプロンプトを取得
+    /// </summary>
+    public static string ConversationSystemPrompt =>
+        _loadedConfig?.ConversationPrompt ?? DefaultConversationSystemPrompt;
+
+    /// <summary>
+    /// 意味検証と音声認識補正用システムプロンプトを取得
+    /// </summary>
+    public static string SemanticValidationSystemPrompt =>
+        _loadedConfig?.SemanticValidationPrompt ?? DefaultSemanticValidationSystemPrompt;
 
     /// <summary>
     /// システムプロンプトのタイプを識別

@@ -94,6 +94,26 @@ public class SherpaModelDefinition
             },
             Description = "Lightweight Japanese speech recognition model trained on 35,000+ hours of ReazonSpeech v2.0. Smaller alternative to Zipformer with simpler CTC architecture",
             SupportsJapanese = true
+        },
+        new SherpaModelDefinition
+        {
+            Id = "streaming-zipformer-multilingual",
+            Name = "Streaming Zipformer Multilingual (8 languages)",
+            NameJa = "ストリーミング Zipformer 多言語 (8言語)",
+            Url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10.tar.bz2",
+            ArchiveFileName = "sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10.tar.bz2",
+            FolderName = "sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10",
+            SizeBytes = 247L * 1024 * 1024, // ~247MB compressed
+            Languages = new[] { "Arabic", "English", "Indonesian", "Japanese", "Russian", "Thai", "Vietnamese", "Chinese" },
+            RequiredFiles = new[]
+            {
+                "encoder-epoch-75-avg-11-chunk-16-left-128.int8.onnx",
+                "decoder-epoch-75-avg-11-chunk-16-left-128.onnx",
+                "joiner-epoch-75-avg-11-chunk-16-left-128.int8.onnx",
+                "tokens.txt"
+            },
+            Description = "Streaming multilingual model with support for 8 languages including Japanese, optimized for real-time recognition",
+            SupportsJapanese = true
         }
     };
 
