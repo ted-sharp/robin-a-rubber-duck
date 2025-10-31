@@ -12,47 +12,185 @@
         android:layout_height="match_parent">
 
     <!-- メインコンテンツ -->
-    <LinearLayout
+    <FrameLayout
         android:id="@+id/main_content"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:layout_height="match_parent">
 
-        <!-- ウェルカムメッセージ表示エリア -->
-        <TextView
-            android:id="@+id/welcome_message_text"
+        <!-- メインコンテンツレイアウト -->
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:padding="16dp"
-            android:text=""
-            android:textSize="14sp"
-            android:textColor="@android:color/black"
-            android:visibility="gone"
-            android:background="#F5F5F5"
-            android:lineSpacingMultiplier="1.5" />
+            android:layout_height="match_parent"
+            android:orientation="vertical">
 
-        <!-- チャット画面 -->
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/chat_recycler_view"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:padding="16dp"
-            android:clipToPadding="false" />
+            <!-- ウェルカムメッセージ表示エリア -->
+            <TextView
+                android:id="@+id/welcome_message_text"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="16dp"
+                android:text=""
+                android:textSize="14sp"
+                android:textColor="@android:color/black"
+                android:visibility="gone"
+                android:background="#F5F5F5"
+                android:lineSpacingMultiplier="1.5" />
 
-        <!-- ステータステキスト -->
-        <TextView
-            android:id="@+id/status_text"
+            <!-- チャット画面 -->
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/chat_recycler_view"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:padding="16dp"
+                android:clipToPadding="false" />
+
+            <!-- ステータステキスト -->
+            <TextView
+                android:id="@+id/status_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|center_horizontal"
+                android:layout_marginBottom="80dp"
+                android:padding="12dp"
+                android:background="#80000000"
+                android:textColor="@android:color/white"
+                android:visibility="gone"
+                android:text="@string/listening" />
+        </LinearLayout>
+
+        <!-- 左上のコントロールエリア（縦並び、端ビタ付け） -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="80dp"
-            android:padding="12dp"
-            android:background="#80000000"
-            android:textColor="@android:color/white"
-            android:visibility="gone"
-            android:text="@string/listening" />
-    </LinearLayout>
+            android:layout_gravity="top|start"
+            android:orientation="vertical">
+
+            <!-- LLMモデル表示・切り替えエリア（控えめデザイン） -->
+            <LinearLayout
+                android:id="@+id/llm_model_container"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="#D9F5F5F5"
+                android:paddingStart="0dp"
+                android:paddingEnd="6dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageButton
+                    android:id="@+id/model_toggle_button"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:src="@android:drawable/ic_popup_sync"
+                    android:contentDescription="LLMモデル切り替え"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="0dp"
+                    android:scaleType="fitCenter"
+                    android:clickable="false"
+                    android:focusable="false" />
+
+                <TextView
+                    android:id="@+id/current_model_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:text="LLM: 読み込み中..."
+                    android:textSize="9sp"
+                    android:textColor="#757575"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:maxWidth="160dp"
+                    android:clickable="false"
+                    android:focusable="false" />
+            </LinearLayout>
+
+            <!-- LLMエラー表示エリア -->
+            <LinearLayout
+                android:id="@+id/llm_error_container"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:background="#D9FFEBEE"
+                android:paddingStart="0dp"
+                android:paddingEnd="6dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:visibility="gone"
+                android:clickable="true"
+                android:focusable="true">
+
+                <ImageView
+                    android:id="@+id/llm_error_icon"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:src="@android:drawable/stat_notify_error"
+                    android:contentDescription="LLM接続エラー"
+                    android:padding="0dp"
+                    android:scaleType="fitCenter" />
+
+                <TextView
+                    android:id="@+id/llm_error_message"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:text="接続エラー"
+                    android:textSize="9sp"
+                    android:textColor="#C62828"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    android:maxWidth="160dp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- 左下の音声認識モデル表示エリア（控えめデザイン、端ビタ付け） -->
+        <LinearLayout
+            android:id="@+id/asr_model_container"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_marginBottom="0dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="#D9F5F5F5"
+            android:paddingStart="0dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="3dp"
+            android:paddingBottom="3dp"
+            android:clickable="true"
+            android:focusable="true">
+
+            <ImageButton
+                android:id="@+id/asr_toggle_button"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:src="@android:drawable/ic_popup_sync"
+                android:contentDescription="音声認識モデル切り替え"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="0dp"
+                android:scaleType="fitCenter"
+                android:clickable="false"
+                android:focusable="false" />
+
+            <TextView
+                android:id="@+id/current_asr_model_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:text="ASR: 読み込み中..."
+                android:textSize="9sp"
+                android:textColor="#757575"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:maxWidth="240dp"
+                android:clickable="false"
+                android:focusable="false" />
+        </LinearLayout>
+    </FrameLayout>
 
     <!-- ナビゲーションドロワー -->
     <com.google.android.material.navigation.NavigationView
@@ -83,21 +221,6 @@
         android:contentDescription="@string/mic_button_desc"
         android:src="@android:drawable/ic_btn_speak_now"
         app:tint="@android:color/white" />
-
-    <!-- LLMエラーマーク（右上隅） -->
-    <ImageView
-        android:id="@+id/llm_error_icon"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_gravity="top|end"
-        android:layout_margin="16dp"
-        android:src="@android:drawable/stat_notify_error"
-        android:contentDescription="LLM接続エラー"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:padding="8dp"
-        android:visibility="gone"
-        android:clickable="true"
-        android:focusable="true" />
 
     <!-- スワイプヒント：山形矢印 -->
     <Robin.Views.SwipeHintView

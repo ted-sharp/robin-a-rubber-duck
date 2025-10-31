@@ -107,3 +107,14 @@ public class AndroidSTTSettings : STTProviderSettings
     {
     }
 }
+
+/// <summary>
+/// Faster Whisper（LAN内サーバー）設定
+/// </summary>
+public class FasterWhisperSTTSettings : STTProviderSettings
+{
+    public FasterWhisperSTTSettings(string serverUrl, string language = "ja", bool isEnabled = true)
+        : base("faster-whisper", serverUrl, null, language, null, isEnabled)
+    {
+    }
+}

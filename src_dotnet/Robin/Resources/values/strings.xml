@@ -5,7 +5,7 @@
 
     <!-- Menu items -->
     <string name="menu_chat">チャット</string>
-    <string name="menu_model_management">音声認識モデル</string>
+    <string name="menu_model_management">ASRモデル</string>
     <string name="menu_llm_model">LLMモデル</string>
     <string name="menu_settings">設定</string>
     <string name="menu_about">バージョン情報</string>

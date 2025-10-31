@@ -27,7 +27,7 @@ public class OpenAIService
         _httpClient = new HttpClient
         {
             BaseAddress = new Uri(_baseAddress),
-            Timeout = TimeSpan.FromSeconds(60)
+            Timeout = TimeSpan.FromSeconds(5)
         };
         _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
         Log.Info("OpenAIService", $"初期化完了 [OpenAI] - Model: {_model}");
@@ -44,7 +44,7 @@ public class OpenAIService
         _httpClient = new HttpClient
         {
             BaseAddress = new Uri(_baseAddress),
-            Timeout = TimeSpan.FromSeconds(60)
+            Timeout = TimeSpan.FromSeconds(5)
         };
         // LM Studioの場合はAuthorizationヘッダーは不要
 
@@ -61,7 +61,7 @@ public class OpenAIService
 
         _httpClient = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(60)
+            Timeout = TimeSpan.FromSeconds(5)
         };
 
         if (_provider == "openai")

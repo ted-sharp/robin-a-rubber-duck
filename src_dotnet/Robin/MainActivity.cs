@@ -25,7 +25,15 @@ public class MainActivity : AppCompatActivity
     private TextView? _statusText;
     private TextView? _welcomeMessageText;
     private View? _swipeHint;
+    private LinearLayout? _llmModelContainer;
+    private ImageButton? _modelToggleButton;
+    private TextView? _currentModelText;
+    private LinearLayout? _asrModelContainer;
+    private ImageButton? _asrToggleButton;
+    private TextView? _currentAsrModelText;
+    private LinearLayout? _llmErrorContainer;
     private ImageView? _llmErrorIcon;
+    private TextView? _llmErrorMessage;
 
     private MessageAdapter? _messageAdapter;
     private ConversationService? _conversationService;
@@ -42,6 +50,7 @@ public class MainActivity : AppCompatActivity
     private string _selectedLanguage = "ja"; // 選択言語（デフォルト: 日本語）
     private string? _azureSttConfigPath = null; // Azure STT設定ファイルパス
     private AzureSttService? _azureSttService = null; // Azure STTサービス
+    private FasterWhisperService? _fasterWhisperService = null; // Faster Whisperサービス
 
     // LLMエラー状態管理
 #pragma warning disable CS0414 // フィールドが割り当てられていますが値が使用されていません (将来使用予定)
@@ -54,6 +63,7 @@ public class MainActivity : AppCompatActivity
     {
         "android-default", // Androidデフォルト音声認識
         "azure-stt", // Azure Speech-to-Text API
+        "faster-whisper", // Faster Whisper (LAN内サーバー)
         "sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10",
         "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01",
         "sherpa-onnx-nemo-parakeet-tdt_ctc-0.6b-ja-35000-int8",
@@ -134,12 +144,32 @@ public class MainActivity : AppCompatActivity
         _statusText = FindViewById<TextView>(Resource.Id.status_text);
         _welcomeMessageText = FindViewById<TextView>(Resource.Id.welcome_message_text);
         _swipeHint = FindViewById(Resource.Id.swipe_hint);
+        _llmModelContainer = FindViewById<LinearLayout>(Resource.Id.llm_model_container);
+        _modelToggleButton = FindViewById<ImageButton>(Resource.Id.model_toggle_button);
+        _currentModelText = FindViewById<TextView>(Resource.Id.current_model_text);
+        _asrModelContainer = FindViewById<LinearLayout>(Resource.Id.asr_model_container);
+        _asrToggleButton = FindViewById<ImageButton>(Resource.Id.asr_toggle_button);
+        _currentAsrModelText = FindViewById<TextView>(Resource.Id.current_asr_model_text);
+        _llmErrorContainer = FindViewById<LinearLayout>(Resource.Id.llm_error_container);
         _llmErrorIcon = FindViewById<ImageView>(Resource.Id.llm_error_icon);
+        _llmErrorMessage = FindViewById<TextView>(Resource.Id.llm_error_message);
 
-        // LLMエラーアイコンのタップイベント設定
-        if (_llmErrorIcon != null)
+        // LLMモデルコンテナ全体のタップイベント設定
+        if (_llmModelContainer != null)
         {
-            _llmErrorIcon.Click += OnLlmErrorIconClick;
+            _llmModelContainer.Click += OnModelToggleButtonClick;
+        }
+
+        // ASRモデルコンテナ全体のタップイベント設定
+        if (_asrModelContainer != null)
+        {
+            _asrModelContainer.Click += OnAsrToggleButtonClick;
+        }
+
+        // LLMエラーコンテナのタップイベント設定
+        if (_llmErrorContainer != null)
+        {
+            _llmErrorContainer.Click += OnLlmErrorIconClick;
         }
     }
 
@@ -164,6 +194,13 @@ public class MainActivity : AppCompatActivity
         _azureSttService.RecognitionStopped += OnRecognitionStopped;
         _azureSttService.RecognitionResult += OnRecognitionResult;
         _azureSttService.RecognitionError += OnRecognitionError;
+
+        // Faster Whisperサービスの初期化
+        _fasterWhisperService = new FasterWhisperService(this);
+        _fasterWhisperService.RecognitionStarted += OnRecognitionStarted;
+        _fasterWhisperService.RecognitionStopped += OnRecognitionStopped;
+        _fasterWhisperService.RecognitionResult += OnRecognitionResult;
+        _fasterWhisperService.RecognitionError += OnRecognitionError;
 
         // Sherpa-ONNXサービスの初期化
         InitializeSherpaService();
@@ -315,6 +352,7 @@ public class MainActivity : AppCompatActivity
                 _statusText.Visibility = ViewStates.Gone;
             }
             _currentModelName = modelName;
+            UpdateAsrModelDisplay();
             ShowToast($"Sherpa-ONNX初期化完了: {modelName}");
         });
     }
@@ -332,6 +370,7 @@ public class MainActivity : AppCompatActivity
                 _statusText.Visibility = ViewStates.Gone;
             }
             _currentModelName = "Android Standard (Offline)";
+            UpdateAsrModelDisplay();
             ShowToast("モデル初期化失敗。Android標準を使用します。");
         });
     }
@@ -352,6 +391,9 @@ public class MainActivity : AppCompatActivity
             // モック版: APIキーなしで動作
             _openAIService = new OpenAIService("mock-api-key");
         }
+
+        // LLMモデル表示を更新
+        UpdateCurrentModelDisplay();
     }
 
     /// <summary>
@@ -433,8 +475,8 @@ public class MainActivity : AppCompatActivity
     /// </summary>
     private bool IsModelAvailable(string modelName)
     {
-        // Androidデフォルトとクラウドサービスは常に利用可能
-        if (modelName == "android-default" || modelName == "azure-stt")
+        // Androidデフォルト、クラウドサービス、Faster Whisperは常に利用可能
+        if (modelName == "android-default" || modelName == "azure-stt" || modelName == "faster-whisper")
         {
             return true;
         }
@@ -474,6 +516,7 @@ public class MainActivity : AppCompatActivity
         {
             "Android デフォルト音声認識 - オンライン",
             "Azure STT (クラウドAPI) - オンライン専用",
+            "Faster Whisper (LAN内サーバー) - 要サーバー設定",
             "Streaming Zipformer (8言語) - 247MB",
             "Zipformer Ja (高精度日本語) - 680MB",
             "Nemo CTC (日本語) - 625MB",
@@ -532,10 +575,15 @@ public class MainActivity : AppCompatActivity
             {
                 LoadAndroidDefaultStt();
             }
-            // Azure STTの場合は設定ファイル選択ダイアログを表示
+            // Azure STTの場合は設定ダイアログを表示
             else if (selectedModel == "azure-stt")
             {
-                ShowAzureSttConfigFileSelectionDialog();
+                ShowAzureSttConfigDialog();
+            }
+            // Faster Whisperの場合はサーバーURL入力ダイアログを表示
+            else if (selectedModel == "faster-whisper")
+            {
+                ShowFasterWhisperServerDialog();
             }
             // SenseVoiceまたはWhisperの場合は言語選択ダイアログを表示
             else if (selectedModel.Contains("sense-voice") || selectedModel.Contains("whisper"))
@@ -562,34 +610,62 @@ public class MainActivity : AppCompatActivity
         var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
         builder.SetTitle("LLMモデルを選択");
 
-        // LLMモデルの選択肢
-        var llmModelNames = new string[]
+        // LLMプロバイダーの選択肢
+        var llmProviderNames = new string[]
         {
-            "LM Studio 1（自宅）",
-            "LM Studio 2（職場）",
-            "LM Studio 設定を編集...",
-            "設定ファイルから読み込み..."
+            "OpenAI",
+            "Azure OpenAI",
+            "LM Studio 1",
+            "LM Studio 2",
+            "Claude (Anthropic)"
         };
 
+        // プロバイダー識別子の配列
+        var llmProviderIds = new string[]
+        {
+            "openai",
+            "azure-openai",
+            "lm-studio-1",
+            "lm-studio-2",
+            "claude"
+        };
+
+        // 現在選択されているプロバイダーを取得
+        var currentSettings = _settingsService?.LoadLLMProviderSettings();
+        var currentProvider = currentSettings?.Provider ?? "";
+
+        // 現在選択されているインデックスを見つける
+        int selectedIndex = -1;
+        for (int i = 0; i < llmProviderIds.Length; i++)
+        {
+            if (llmProviderIds[i] == currentProvider)
+            {
+                selectedIndex = i;
+                break;
+            }
+        }
+
         AndroidX.AppCompat.App.AlertDialog? dialog = null;
-        builder.SetItems(llmModelNames, (sender, e) =>
+        builder.SetSingleChoiceItems(llmProviderNames, selectedIndex, (sender, e) =>
         {
             dialog?.Dismiss();
 
             switch (e.Which)
             {
-                case 0: // LM Studio 1
-                    LoadLlmProvider("lmStudio1");
+                case 0: // OpenAI
+                    ShowOpenAIConfigDialog();
                     break;
-                case 1: // LM Studio 2
-                    LoadLlmProvider("lmStudio2");
+                case 1: // Azure OpenAI
+                    ShowAzureOpenAIConfigDialog();
                     break;
-                case 2: // LM Studio設定画面
-                    var intent = new Android.Content.Intent(this, typeof(LMStudioSettingsActivity));
-                    StartActivity(intent);
+                case 2: // LM Studio 1
+                    ShowLMStudioConfigDialog("lm-studio-1");
                     break;
-                case 3: // ファイル選択
-                    ShowLlmConfigFileSelectionDialog();
+                case 3: // LM Studio 2
+                    ShowLMStudioConfigDialog("lm-studio-2");
+                    break;
+                case 4: // Claude
+                    ShowClaudeConfigDialog();
                     break;
             }
         });
@@ -756,6 +832,394 @@ public class MainActivity : AppCompatActivity
         });
     }
 
+    private void ShowOpenAIConfigDialog()
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("OpenAI設定");
+
+        var layout = new Android.Widget.LinearLayout(this)
+        {
+            Orientation = Android.Widget.Orientation.Vertical
+        };
+        layout.SetPadding(50, 40, 50, 10);
+
+        // API Key入力
+        var apiKeyLabel = new Android.Widget.TextView(this) { Text = "API Key:" };
+        layout.AddView(apiKeyLabel);
+        var apiKeyInput = new Android.Widget.EditText(this)
+        {
+            Hint = "sk-...",
+            InputType = Android.Text.InputTypes.TextVariationPassword
+        };
+        layout.AddView(apiKeyInput);
+
+        // Model入力
+        var modelLabel = new Android.Widget.TextView(this) { Text = "Model:" };
+        layout.AddView(modelLabel);
+        var modelInput = new Android.Widget.EditText(this)
+        {
+            Hint = "gpt-4o, gpt-4o-mini, gpt-3.5-turbo など",
+            Text = "gpt-4o-mini"
+        };
+        layout.AddView(modelInput);
+
+        // 設定ファイル読み込みボタン
+        var loadButton = new Android.Widget.Button(this) { Text = "設定ファイルから読み込み" };
+        loadButton.Click += (s, e) =>
+        {
+            ShowLlmConfigFileSelectionDialog((configPath) =>
+            {
+                try
+                {
+                    var jsonContent = File.ReadAllText(configPath);
+                    var config = System.Text.Json.JsonSerializer.Deserialize<LLMProviderSettings>(jsonContent);
+                    if (config != null)
+                    {
+                        apiKeyInput.Text = config.ApiKey;
+                        modelInput.Text = config.ModelName;
+                        ShowToast("設定を読み込みました");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ShowToast($"設定読み込みエラー: {ex.Message}");
+                }
+            });
+        };
+        layout.AddView(loadButton);
+
+        builder.SetView(layout);
+
+        builder.SetPositiveButton("保存", (sender, e) =>
+        {
+            var apiKey = apiKeyInput.Text?.Trim();
+            var model = modelInput.Text?.Trim() ?? "gpt-4o-mini";
+
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                ShowToast("API Keyを入力してください");
+                return;
+            }
+
+            var settings = new LLMProviderSettings("openai", "https://api.openai.com/v1", model, apiKey, true);
+            _settingsService?.SaveLLMProviderSettings(settings);
+            InitializeLLMProvider(settings);
+            ShowToast($"OpenAI設定を保存しました: {model}");
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) => { });
+        builder.Create()?.Show();
+    }
+
+    private void ShowAzureOpenAIConfigDialog()
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("Azure OpenAI設定");
+
+        var layout = new Android.Widget.LinearLayout(this)
+        {
+            Orientation = Android.Widget.Orientation.Vertical
+        };
+        layout.SetPadding(50, 40, 50, 10);
+
+        // Endpoint入力
+        var endpointLabel = new Android.Widget.TextView(this) { Text = "Endpoint:" };
+        layout.AddView(endpointLabel);
+        var endpointInput = new Android.Widget.EditText(this)
+        {
+            Hint = "https://your-resource.openai.azure.com",
+            InputType = Android.Text.InputTypes.TextVariationUri
+        };
+        layout.AddView(endpointInput);
+
+        // API Key入力
+        var apiKeyLabel = new Android.Widget.TextView(this) { Text = "API Key:" };
+        layout.AddView(apiKeyLabel);
+        var apiKeyInput = new Android.Widget.EditText(this)
+        {
+            Hint = "Azure API Key",
+            InputType = Android.Text.InputTypes.TextVariationPassword
+        };
+        layout.AddView(apiKeyInput);
+
+        // Deployment Name入力
+        var deploymentLabel = new Android.Widget.TextView(this) { Text = "Deployment Name:" };
+        layout.AddView(deploymentLabel);
+        var deploymentInput = new Android.Widget.EditText(this)
+        {
+            Hint = "gpt-4o-deployment"
+        };
+        layout.AddView(deploymentInput);
+
+        // 設定ファイル読み込みボタン
+        var loadButton = new Android.Widget.Button(this) { Text = "設定ファイルから読み込み" };
+        loadButton.Click += (s, e) =>
+        {
+            ShowLlmConfigFileSelectionDialog((configPath) =>
+            {
+                try
+                {
+                    var jsonContent = File.ReadAllText(configPath);
+                    var config = System.Text.Json.JsonSerializer.Deserialize<LLMProviderSettings>(jsonContent);
+                    if (config != null)
+                    {
+                        endpointInput.Text = config.Endpoint;
+                        apiKeyInput.Text = config.ApiKey;
+                        deploymentInput.Text = config.ModelName;
+                        ShowToast("設定を読み込みました");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ShowToast($"設定読み込みエラー: {ex.Message}");
+                }
+            });
+        };
+        layout.AddView(loadButton);
+
+        builder.SetView(layout);
+
+        builder.SetPositiveButton("保存", (sender, e) =>
+        {
+            var endpoint = endpointInput.Text?.Trim();
+            var apiKey = apiKeyInput.Text?.Trim();
+            var deployment = deploymentInput.Text?.Trim();
+
+            if (string.IsNullOrWhiteSpace(endpoint) || string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(deployment))
+            {
+                ShowToast("すべての項目を入力してください");
+                return;
+            }
+
+            var settings = new LLMProviderSettings("azure-openai", endpoint, deployment, apiKey, true);
+            _settingsService?.SaveLLMProviderSettings(settings);
+            InitializeLLMProvider(settings);
+            ShowToast($"Azure OpenAI設定を保存しました: {deployment}");
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) => { });
+        builder.Create()?.Show();
+    }
+
+    private void ShowLMStudioConfigDialog(string providerId = "lm-studio-1")
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        var displayName = providerId == "lm-studio-1" ? "LM Studio 1" : "LM Studio 2";
+        builder.SetTitle($"{displayName}設定");
+
+        var layout = new Android.Widget.LinearLayout(this)
+        {
+            Orientation = Android.Widget.Orientation.Vertical
+        };
+        layout.SetPadding(50, 40, 50, 10);
+
+        // Endpoint入力
+        var endpointLabel = new Android.Widget.TextView(this) { Text = "Endpoint:" };
+        layout.AddView(endpointLabel);
+        var endpointInput = new Android.Widget.EditText(this)
+        {
+            Hint = "http://192.168.1.100:1234",
+            InputType = Android.Text.InputTypes.TextVariationUri
+        };
+        layout.AddView(endpointInput);
+
+        // Model入力
+        var modelLabel = new Android.Widget.TextView(this) { Text = "Model:" };
+        layout.AddView(modelLabel);
+        var modelInput = new Android.Widget.EditText(this)
+        {
+            Hint = "モデル名（任意）",
+            Text = "local-model"
+        };
+        layout.AddView(modelInput);
+
+        // 前回の設定があれば表示
+        var llmSettings = _settingsService?.LoadLLMProviderSettings();
+        if (llmSettings?.Provider == providerId && !string.IsNullOrEmpty(llmSettings.Endpoint))
+        {
+            endpointInput.Text = llmSettings.Endpoint;
+            modelInput.Text = llmSettings.ModelName;
+        }
+
+        // 設定ファイル読み込みボタン
+        var loadButton = new Android.Widget.Button(this) { Text = "設定ファイルから読み込み" };
+        loadButton.Click += (s, e) =>
+        {
+            ShowLlmConfigFileSelectionDialog((configPath) =>
+            {
+                try
+                {
+                    var jsonContent = File.ReadAllText(configPath);
+                    var config = System.Text.Json.JsonSerializer.Deserialize<LLMProviderSettings>(jsonContent);
+                    if (config != null)
+                    {
+                        endpointInput.Text = config.Endpoint;
+                        modelInput.Text = config.ModelName;
+                        ShowToast("設定を読み込みました");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ShowToast($"設定読み込みエラー: {ex.Message}");
+                }
+            });
+        };
+        layout.AddView(loadButton);
+
+        builder.SetView(layout);
+
+        builder.SetPositiveButton("保存", (sender, e) =>
+        {
+            var endpoint = endpointInput.Text?.Trim();
+            var model = modelInput.Text?.Trim() ?? "local-model";
+
+            if (string.IsNullOrWhiteSpace(endpoint))
+            {
+                ShowToast("Endpointを入力してください");
+                return;
+            }
+
+            var settings = new LLMProviderSettings(providerId, endpoint, model, null, true);
+            _settingsService?.SaveLLMProviderSettings(settings);
+            InitializeLLMProvider(settings);
+            ShowToast($"{displayName}設定を保存しました: {endpoint}");
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) => { });
+        builder.Create()?.Show();
+    }
+
+    private void ShowClaudeConfigDialog()
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("Claude設定");
+
+        var layout = new Android.Widget.LinearLayout(this)
+        {
+            Orientation = Android.Widget.Orientation.Vertical
+        };
+        layout.SetPadding(50, 40, 50, 10);
+
+        // API Key入力
+        var apiKeyLabel = new Android.Widget.TextView(this) { Text = "API Key:" };
+        layout.AddView(apiKeyLabel);
+        var apiKeyInput = new Android.Widget.EditText(this)
+        {
+            Hint = "sk-ant-...",
+            InputType = Android.Text.InputTypes.TextVariationPassword
+        };
+        layout.AddView(apiKeyInput);
+
+        // Model入力
+        var modelLabel = new Android.Widget.TextView(this) { Text = "Model:" };
+        layout.AddView(modelLabel);
+        var modelInput = new Android.Widget.EditText(this)
+        {
+            Hint = "claude-3-5-sonnet-20241022, claude-3-opus-20240229 など",
+            Text = "claude-3-5-sonnet-20241022"
+        };
+        layout.AddView(modelInput);
+
+        // 設定ファイル読み込みボタン
+        var loadButton = new Android.Widget.Button(this) { Text = "設定ファイルから読み込み" };
+        loadButton.Click += (s, e) =>
+        {
+            ShowLlmConfigFileSelectionDialog((configPath) =>
+            {
+                try
+                {
+                    var jsonContent = File.ReadAllText(configPath);
+                    var config = System.Text.Json.JsonSerializer.Deserialize<LLMProviderSettings>(jsonContent);
+                    if (config != null)
+                    {
+                        apiKeyInput.Text = config.ApiKey;
+                        modelInput.Text = config.ModelName;
+                        ShowToast("設定を読み込みました");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ShowToast($"設定読み込みエラー: {ex.Message}");
+                }
+            });
+        };
+        layout.AddView(loadButton);
+
+        builder.SetView(layout);
+
+        builder.SetPositiveButton("保存", (sender, e) =>
+        {
+            var apiKey = apiKeyInput.Text?.Trim();
+            var model = modelInput.Text?.Trim() ?? "claude-3-5-sonnet-20241022";
+
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                ShowToast("API Keyを入力してください");
+                return;
+            }
+
+            var settings = new LLMProviderSettings("claude", "https://api.anthropic.com/v1", model, apiKey, true);
+            _settingsService?.SaveLLMProviderSettings(settings);
+            InitializeLLMProvider(settings);
+            ShowToast($"Claude設定を保存しました: {model}");
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) => { });
+        builder.Create()?.Show();
+    }
+
+    private void ShowLlmConfigFileSelectionDialog(Action<string> onFileSelected)
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("LLM設定ファイルを選択");
+
+        var downloadsPath = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDownloads)?.AbsolutePath;
+
+        if (string.IsNullOrEmpty(downloadsPath) || !Directory.Exists(downloadsPath))
+        {
+            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+            errorBuilder.SetTitle("エラー");
+            errorBuilder.SetMessage("Downloadフォルダにアクセスできません");
+            errorBuilder.SetPositiveButton("OK", (s, e) => { });
+            errorBuilder.Show();
+            return;
+        }
+
+        var jsonFiles = Directory.GetFiles(downloadsPath, "*llm*.json")
+            .Concat(Directory.GetFiles(downloadsPath, "*lmstudio*.json"))
+            .Concat(Directory.GetFiles(downloadsPath, "*.json"))
+            .Distinct()
+            .ToArray();
+
+        if (jsonFiles.Length == 0)
+        {
+            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+            errorBuilder.SetTitle("設定ファイルが見つかりません");
+            errorBuilder.SetMessage($"Downloadフォルダに .json ファイルが見つかりません。\n\nパス: {downloadsPath}");
+            errorBuilder.SetPositiveButton("OK", (s, e) => { });
+            errorBuilder.Show();
+            return;
+        }
+
+        var fileNames = jsonFiles.Select(f => Path.GetFileName(f)).ToArray();
+
+        AndroidX.AppCompat.App.AlertDialog? dialog = null;
+        builder.SetItems(fileNames, (sender, e) =>
+        {
+            var selectedFilePath = jsonFiles[e.Which];
+            dialog?.Dismiss();
+            onFileSelected?.Invoke(selectedFilePath);
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) =>
+        {
+            dialog?.Dismiss();
+        });
+
+        dialog = builder.Create();
+        dialog?.Show();
+    }
+
     private void LoadAndroidDefaultStt()
     {
         Task.Run(async () =>
@@ -778,6 +1242,7 @@ public class MainActivity : AppCompatActivity
                 {
                     // VoiceInputServiceは既に初期化済みなので、モデル名だけ更新
                     _currentModelName = "android-default";
+                    UpdateAsrModelDisplay();
                     _statusText?.SetText("Androidデフォルト音声認識を使用", TextView.BufferType.Normal);
                     Android.Util.Log.Info("MainActivity", "Androidデフォルト音声認識に切り替え");
 
@@ -795,7 +1260,100 @@ public class MainActivity : AppCompatActivity
         });
     }
 
-    private void ShowAzureSttConfigFileSelectionDialog()
+    private void ShowAzureSttConfigDialog()
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("Azure STT設定");
+
+        // カスタムレイアウトを作成
+        var layout = new Android.Widget.LinearLayout(this)
+        {
+            Orientation = Android.Widget.Orientation.Vertical
+        };
+        layout.SetPadding(50, 40, 50, 10);
+
+        // Subscription Key入力
+        var subscriptionKeyLabel = new Android.Widget.TextView(this) { Text = "Subscription Key:" };
+        layout.AddView(subscriptionKeyLabel);
+        var subscriptionKeyInput = new Android.Widget.EditText(this)
+        {
+            Hint = "Azure Subscription Key",
+            InputType = Android.Text.InputTypes.TextVariationPassword
+        };
+        layout.AddView(subscriptionKeyInput);
+
+        // Region入力
+        var regionLabel = new Android.Widget.TextView(this) { Text = "Region:" };
+        layout.AddView(regionLabel);
+        var regionInput = new Android.Widget.EditText(this)
+        {
+            Hint = "例: japaneast",
+            InputType = Android.Text.InputTypes.ClassText
+        };
+        layout.AddView(regionInput);
+
+        // Language入力
+        var languageLabel = new Android.Widget.TextView(this) { Text = "Language:" };
+        layout.AddView(languageLabel);
+        var languageInput = new Android.Widget.EditText(this)
+        {
+            Hint = "例: ja-JP",
+            InputType = Android.Text.InputTypes.ClassText,
+            Text = "ja-JP"
+        };
+        layout.AddView(languageInput);
+
+        // 設定ファイル読み込みボタン
+        var loadButton = new Android.Widget.Button(this) { Text = "設定ファイルから読み込み" };
+        loadButton.Click += (s, e) =>
+        {
+            ShowAzureSttConfigFileSelectionDialog((configPath) =>
+            {
+                // ファイルから設定を読み込んで入力欄に反映
+                try
+                {
+                    var jsonContent = File.ReadAllText(configPath);
+                    var config = System.Text.Json.JsonSerializer.Deserialize<AzureSttConfig>(jsonContent);
+                    if (config != null)
+                    {
+                        subscriptionKeyInput.Text = config.SubscriptionKey;
+                        regionInput.Text = config.Region;
+                        languageInput.Text = config.Language;
+                        ShowToast("設定を読み込みました");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ShowToast($"設定読み込みエラー: {ex.Message}");
+                }
+            });
+        };
+        layout.AddView(loadButton);
+
+        builder.SetView(layout);
+
+        builder.SetPositiveButton("接続", (sender, e) =>
+        {
+            var subscriptionKey = subscriptionKeyInput.Text?.Trim();
+            var region = regionInput.Text?.Trim();
+            var language = languageInput.Text?.Trim() ?? "ja-JP";
+
+            if (string.IsNullOrWhiteSpace(subscriptionKey) || string.IsNullOrWhiteSpace(region))
+            {
+                ShowToast("Subscription KeyとRegionを入力してください");
+                return;
+            }
+
+            LoadAzureSttConfigDirect(subscriptionKey, region, language);
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) => { });
+
+        var dialog = builder.Create();
+        dialog?.Show();
+    }
+
+    private void ShowAzureSttConfigFileSelectionDialog(Action<string> onFileSelected)
     {
         var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
         builder.SetTitle("Azure STT設定ファイルを選択");
@@ -832,7 +1390,7 @@ public class MainActivity : AppCompatActivity
         {
             var selectedFilePath = jsonFiles[e.Which];
             dialog?.Dismiss();
-            LoadAzureSttConfig(selectedFilePath);
+            onFileSelected?.Invoke(selectedFilePath);
         });
 
         builder.SetNegativeButton("キャンセル", (sender, e) =>
@@ -842,6 +1400,277 @@ public class MainActivity : AppCompatActivity
 
         dialog = builder.Create();
         dialog?.Show();
+    }
+
+    private void LoadAzureSttConfigDirect(string subscriptionKey, string region, string language)
+    {
+        Task.Run(async () =>
+        {
+            try
+            {
+                // Azure STTサービスを初期化
+                _azureSttService?.Dispose();
+                _azureSttService = new AzureSttService(this);
+
+                // 設定をJSONファイルとして一時保存
+                var config = new AzureSttConfig
+                {
+                    SubscriptionKey = subscriptionKey,
+                    Region = region,
+                    Language = language
+                };
+
+                var tempPath = Path.Combine(CacheDir?.AbsolutePath ?? "", "azure_stt_temp.json");
+                var jsonContent = System.Text.Json.JsonSerializer.Serialize(config);
+                await File.WriteAllTextAsync(tempPath, jsonContent);
+
+                var success = await _azureSttService.InitializeAsync(tempPath);
+
+                RunOnUiThread(() =>
+                {
+                    if (success)
+                    {
+                        _currentModelName = "azure-stt";
+                        UpdateAsrModelDisplay();
+
+                        // 設定を保存
+                        var sttSettings = new AzureSTTSettings(region, subscriptionKey, language, true);
+                        _settingsService?.SaveSTTProviderSettings(sttSettings);
+
+                        _statusText?.SetText($"Azure STT接続完了: {region}", TextView.BufferType.Normal);
+                        Android.Util.Log.Info("MainActivity", $"Azure STT接続: {region}");
+                        Toast.MakeText(this, $"Azure STTに接続しました", ToastLength.Short)?.Show();
+                    }
+                    else
+                    {
+                        _statusText?.SetText("Azure STT接続失敗", TextView.BufferType.Normal);
+                        Android.Util.Log.Error("MainActivity", "Azure STT接続失敗");
+                        Toast.MakeText(this, "Azure STT接続に失敗しました", ToastLength.Short)?.Show();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                RunOnUiThread(() =>
+                {
+                    _statusText?.SetText($"Azure STT接続エラー: {ex.Message}", TextView.BufferType.Normal);
+                    Android.Util.Log.Error("MainActivity", $"Azure STT接続エラー: {ex.Message}");
+                    Toast.MakeText(this, $"エラー: {ex.Message}", ToastLength.Short)?.Show();
+                });
+            }
+        });
+    }
+
+    private void ShowFasterWhisperServerDialog()
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("Faster Whisperサーバー設定");
+
+        // カスタムレイアウトを作成
+        var layout = new Android.Widget.LinearLayout(this)
+        {
+            Orientation = Android.Widget.Orientation.Vertical
+        };
+        layout.SetPadding(50, 40, 50, 10);
+
+        // サーバーURL入力
+        var serverUrlLabel = new Android.Widget.TextView(this) { Text = "サーバーURL:" };
+        layout.AddView(serverUrlLabel);
+        var serverUrlInput = new Android.Widget.EditText(this)
+        {
+            Hint = "例: http://192.168.1.100:8000",
+            InputType = Android.Text.InputTypes.TextVariationUri
+        };
+        layout.AddView(serverUrlInput);
+
+        // Language入力
+        var languageLabel = new Android.Widget.TextView(this) { Text = "Language:" };
+        layout.AddView(languageLabel);
+        var languageInput = new Android.Widget.EditText(this)
+        {
+            Hint = "例: ja",
+            InputType = Android.Text.InputTypes.ClassText,
+            Text = _selectedLanguage
+        };
+        layout.AddView(languageInput);
+
+        // 前回の設定があれば表示
+        var sttSettings = _settingsService?.LoadSTTProviderSettings();
+        if (sttSettings?.Provider == "faster-whisper" && !string.IsNullOrEmpty(sttSettings.Endpoint))
+        {
+            serverUrlInput.Text = sttSettings.Endpoint;
+            if (!string.IsNullOrEmpty(sttSettings.Language))
+            {
+                languageInput.Text = sttSettings.Language;
+            }
+        }
+
+        // 設定ファイル読み込みボタン
+        var loadButton = new Android.Widget.Button(this) { Text = "設定ファイルから読み込み" };
+        loadButton.Click += (s, e) =>
+        {
+            ShowFasterWhisperConfigFileSelectionDialog((configPath) =>
+            {
+                // ファイルから設定を読み込んで入力欄に反映
+                try
+                {
+                    var jsonContent = File.ReadAllText(configPath);
+                    var config = System.Text.Json.JsonSerializer.Deserialize<FasterWhisperSTTSettings>(jsonContent);
+                    if (config != null && !string.IsNullOrEmpty(config.Endpoint))
+                    {
+                        serverUrlInput.Text = config.Endpoint;
+                        if (!string.IsNullOrEmpty(config.Language))
+                        {
+                            languageInput.Text = config.Language;
+                        }
+                        ShowToast("設定を読み込みました");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ShowToast($"設定読み込みエラー: {ex.Message}");
+                }
+            });
+        };
+        layout.AddView(loadButton);
+
+        builder.SetView(layout);
+
+        builder.SetPositiveButton("接続", (sender, e) =>
+        {
+            var serverUrl = serverUrlInput.Text?.Trim();
+            var language = languageInput.Text?.Trim() ?? "ja";
+
+            if (string.IsNullOrWhiteSpace(serverUrl))
+            {
+                ShowToast("サーバーURLを入力してください");
+                return;
+            }
+
+            _selectedLanguage = language;
+            LoadFasterWhisper(serverUrl, language);
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) => { });
+
+        var dialog = builder.Create();
+        dialog?.Show();
+    }
+
+    private void ShowFasterWhisperConfigFileSelectionDialog(Action<string> onFileSelected)
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("Faster Whisper設定ファイルを選択");
+
+        // /sdcard/Download/ ディレクトリから .json ファイルを検索
+        var downloadsPath = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDownloads)?.AbsolutePath;
+
+        if (string.IsNullOrEmpty(downloadsPath) || !Directory.Exists(downloadsPath))
+        {
+            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+            errorBuilder.SetTitle("エラー");
+            errorBuilder.SetMessage("Downloadフォルダにアクセスできません");
+            errorBuilder.SetPositiveButton("OK", (s, e) => { });
+            errorBuilder.Show();
+            return;
+        }
+
+        var jsonFiles = Directory.GetFiles(downloadsPath, "*.json");
+
+        if (jsonFiles.Length == 0)
+        {
+            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+            errorBuilder.SetTitle("設定ファイルが見つかりません");
+            errorBuilder.SetMessage($"Downloadフォルダに .json ファイルが見つかりません。\n\nパス: {downloadsPath}");
+            errorBuilder.SetPositiveButton("OK", (s, e) => { });
+            errorBuilder.Show();
+            return;
+        }
+
+        var fileNames = jsonFiles.Select(f => Path.GetFileName(f)).ToArray();
+
+        AndroidX.AppCompat.App.AlertDialog? dialog = null;
+        builder.SetItems(fileNames, (sender, e) =>
+        {
+            var selectedFilePath = jsonFiles[e.Which];
+            dialog?.Dismiss();
+            onFileSelected?.Invoke(selectedFilePath);
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) =>
+        {
+            dialog?.Dismiss();
+        });
+
+        dialog = builder.Create();
+        dialog?.Show();
+    }
+
+    private void LoadFasterWhisper(string serverUrl, string language = "ja")
+    {
+        Task.Run(async () =>
+        {
+            try
+            {
+                // 既存サービスを停止
+                if (_azureSttService != null)
+                {
+                    await _azureSttService.StopListeningAsync();
+                    _azureSttService?.Dispose();
+                    _azureSttService = null;
+                }
+
+                _sherpaService?.StopListening();
+                _sherpaService?.Dispose();
+                _sherpaService = null;
+
+                _voiceInputService?.StopListening();
+
+                // Faster Whisperサービスを初期化
+                if (_fasterWhisperService == null)
+                {
+                    _fasterWhisperService = new FasterWhisperService(this);
+                    _fasterWhisperService.RecognitionStarted += OnRecognitionStarted;
+                    _fasterWhisperService.RecognitionStopped += OnRecognitionStopped;
+                    _fasterWhisperService.RecognitionResult += OnRecognitionResult;
+                    _fasterWhisperService.RecognitionError += OnRecognitionError;
+                }
+
+                var initialized = await _fasterWhisperService.InitializeAsync(serverUrl, language);
+
+                RunOnUiThread(() =>
+                {
+                    if (initialized)
+                    {
+                        _currentModelName = "faster-whisper";
+                        UpdateAsrModelDisplay();
+
+                        // 設定を保存
+                        var sttSettings = new FasterWhisperSTTSettings(serverUrl, language, true);
+                        _settingsService?.SaveSTTProviderSettings(sttSettings);
+
+                        _statusText?.SetText($"Faster Whisper接続完了: {serverUrl}", TextView.BufferType.Normal);
+                        Android.Util.Log.Info("MainActivity", $"Faster Whisper接続: {serverUrl}");
+                        Toast.MakeText(this, $"Faster Whisperに接続しました", ToastLength.Short)?.Show();
+                    }
+                    else
+                    {
+                        _statusText?.SetText("Faster Whisper接続失敗", TextView.BufferType.Normal);
+                        Android.Util.Log.Error("MainActivity", "Faster Whisper接続失敗");
+                        Toast.MakeText(this, "Faster Whisper接続に失敗しました", ToastLength.Short)?.Show();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                RunOnUiThread(() =>
+                {
+                    _statusText?.SetText($"Faster Whisper接続エラー: {ex.Message}", TextView.BufferType.Normal);
+                    Android.Util.Log.Error("MainActivity", $"Faster Whisper接続エラー: {ex.Message}");
+                    Toast.MakeText(this, $"エラー: {ex.Message}", ToastLength.Short)?.Show();
+                });
+            }
+        });
     }
 
     private void LoadAzureSttConfig(string configFilePath)
@@ -862,6 +1691,7 @@ public class MainActivity : AppCompatActivity
                     {
                         _azureSttConfigPath = configFilePath;
                         _currentModelName = "azure-stt";
+                        UpdateAsrModelDisplay();
                         _statusText?.SetText($"Azure STT設定読込完了: {Path.GetFileName(configFilePath)}", TextView.BufferType.Normal);
                         Android.Util.Log.Info("MainActivity", $"Azure STT設定読込完了: {configFilePath}");
                     }
@@ -960,6 +1790,7 @@ public class MainActivity : AppCompatActivity
                     RunOnUiThread(() =>
                     {
                         _currentModelName = modelName;
+                        UpdateAsrModelDisplay();
                         _statusText!.Visibility = ViewStates.Gone;
                         ShowToast($"モデル読み込み完了: {modelName}");
                         Android.Util.Log.Info("MainActivity", $"モデル読み込み成功: {modelName}");
@@ -1044,9 +1875,8 @@ public class MainActivity : AppCompatActivity
             }
             else if (itemId == Resource.Id.nav_llm_model)
             {
-                // LLM設定画面を直接開く
-                var intent = new Android.Content.Intent(this, typeof(LMStudioSettingsActivity));
-                StartActivity(intent);
+                // LLMモデル選択ダイアログを表示
+                ShowLlmModelSelectionDialog();
             }
             else if (itemId == Resource.Id.nav_system_prompts)
             {
@@ -1103,6 +1933,22 @@ public class MainActivity : AppCompatActivity
                 {
                     // 停止中なら開始
                     await _azureSttService.StartListeningAsync();
+                    UpdateMicButtonState();
+                }
+            }
+            // Faster Whisper使用時
+            else if (_currentModelName == "faster-whisper" && _fasterWhisperService != null)
+            {
+                if (_fasterWhisperService.IsListening)
+                {
+                    // 聴取中なら停止
+                    await _fasterWhisperService.StopListeningAsync();
+                    UpdateMicButtonState();
+                }
+                else
+                {
+                    // 停止中なら開始
+                    _fasterWhisperService.StartListening();
                     UpdateMicButtonState();
                 }
             }
@@ -1637,6 +2483,11 @@ public class MainActivity : AppCompatActivity
             {
                 isActive = _azureSttService.IsListening; // 聴取中なら赤色
             }
+            // Faster Whisper使用時
+            else if (_currentModelName == "faster-whisper" && _fasterWhisperService != null)
+            {
+                isActive = _fasterWhisperService.IsListening; // 聴取中なら赤色
+            }
             // Androidデフォルト音声認識使用時
             else if (_currentModelName == "android-default" && _voiceInputService != null)
             {
@@ -1776,6 +2627,7 @@ public class MainActivity : AppCompatActivity
     {
         _voiceInputService?.Dispose();
         _inputBuffer?.Dispose();
+        _fasterWhisperService?.Dispose();
 
         if (_conversationService != null)
         {
@@ -1799,12 +2651,12 @@ public class MainActivity : AppCompatActivity
         _llmHasError = false;
         _llmOnlyTranscriptionMode = false;
 
-        // エラーアイコンを非表示
+        // エラーコンテナを非表示
         RunOnUiThread(() =>
         {
-            if (_llmErrorIcon != null)
+            if (_llmErrorContainer != null)
             {
-                _llmErrorIcon.Visibility = ViewStates.Gone;
+                _llmErrorContainer.Visibility = ViewStates.Gone;
             }
         });
 
@@ -1825,14 +2677,95 @@ public class MainActivity : AppCompatActivity
 
         RunOnUiThread(() =>
         {
-            // エラーアイコンを表示
-            if (_llmErrorIcon != null)
+            // エラーコンテナとメッセージを表示
+            if (_llmErrorContainer != null)
             {
-                _llmErrorIcon.Visibility = ViewStates.Visible;
+                _llmErrorContainer.Visibility = ViewStates.Visible;
+            }
+
+            if (_llmErrorMessage != null)
+            {
+                // エラーメッセージを簡潔に表示（最大2行まで）
+                _llmErrorMessage.Text = errorMessage.Length > 50
+                    ? errorMessage.Substring(0, 47) + "..."
+                    : errorMessage;
             }
 
             // ユーザーに通知（音声認識のみモードになったことを伝える）
             Toast.MakeText(this, $"LLM接続エラー: {errorMessage}\n音声認識のみモードに切り替わりました", ToastLength.Long)?.Show();
+        });
+    }
+
+    /// <summary>
+    /// モデルトグルボタンがクリックされた時の処理（LLM設定画面を開く）
+    /// </summary>
+    private void OnModelToggleButtonClick(object? sender, EventArgs e)
+    {
+        // LLMモデル選択ポップアップを開く
+        ShowLlmModelSelectionDialog();
+    }
+
+    /// <summary>
+    /// 現在のLLMモデル名表示を更新
+    /// </summary>
+    private void UpdateCurrentModelDisplay()
+    {
+        RunOnUiThread(() =>
+        {
+            if (_currentModelText != null && _settingsService != null)
+            {
+                var llmSettings = _settingsService.LoadLLMProviderSettings();
+
+                string displayText;
+                if (llmSettings.IsEnabled && !string.IsNullOrWhiteSpace(llmSettings.ModelName))
+                {
+                    var modelName = llmSettings.ModelName;
+
+                    // モデル名を短縮表示（最大20文字）
+                    if (modelName.Length > 20)
+                    {
+                        modelName = modelName.Substring(0, 17) + "...";
+                    }
+
+                    displayText = $"LLM: {modelName}";
+                }
+                else
+                {
+                    displayText = "LLM: オフ";
+                }
+
+                _currentModelText.Text = displayText;
+            }
+        });
+    }
+
+    /// <summary>
+    /// ASRモデルトグルボタンがクリックされた時の処理（モデル選択ダイアログを表示）
+    /// </summary>
+    private void OnAsrToggleButtonClick(object? sender, EventArgs e)
+    {
+        ShowModelSelectionDialog();
+    }
+
+    /// <summary>
+    /// 現在のASR（音声認識）モデル名表示を更新
+    /// </summary>
+    private void UpdateAsrModelDisplay()
+    {
+        RunOnUiThread(() =>
+        {
+            if (_currentAsrModelText != null)
+            {
+                var displayName = _currentModelName ?? "未初期化";
+
+                // モデル名を短縮表示（最大20文字）
+                if (displayName.Length > 20)
+                {
+                    displayName = displayName.Substring(0, 17) + "...";
+                }
+
+                _currentAsrModelText.Text = $"ASR: {displayName}";
+            }
         });
     }
 }
