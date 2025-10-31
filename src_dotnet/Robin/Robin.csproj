@@ -15,7 +15,9 @@
     <TrimMode>full</TrimMode>
     <!-- Suppress IL2026 warnings for JSON serialization - models are explicitly preserved -->
     <!-- Suppress XA4301 warnings for duplicate native libraries in Sherpa-ONNX AAR -->
-    <NoWarn>$(NoWarn);IL2026;XA4301</NoWarn>
+    <!-- Suppress XA0141 warnings for 16KB page size - waiting for Microsoft.CognitiveServices.Speech update -->
+    <!-- Suppress BG8401 warnings for Kotlin Companion objects in Sherpa-ONNX Java bindings -->
+    <NoWarn>$(NoWarn);IL2026;XA4301;XA0141;BG8401</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

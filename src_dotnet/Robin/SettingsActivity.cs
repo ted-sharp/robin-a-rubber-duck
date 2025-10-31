@@ -59,7 +59,7 @@ public class SettingsActivity : AppCompatActivity
         if (_settingsService == null)
             return;
 
-        var settings = _settingsService.LoadLMStudioSettings();
+        var settings = _settingsService.LoadLLMProviderSettings();
 
         if (_endpointInput != null)
         {
@@ -177,9 +177,11 @@ public class SettingsActivity : AppCompatActivity
             var cursor = ContentResolver?.Query(uri, null, null, null, null);
             if (cursor != null)
             {
+#pragma warning disable CS0618, CA1422 // MediaStore.MediaColumns.Dataは廃止予定だが、互換性のため使用
                 int column_index = cursor.GetColumnIndexOrThrow(Android.Provider.MediaStore.MediaColumns.Data);
+#pragma warning restore CS0618, CA1422
                 cursor.MoveToFirst();
-                string filePath = cursor.GetString(column_index);
+                string? filePath = cursor.GetString(column_index);
                 cursor.Close();
                 return filePath;
             }
@@ -319,8 +321,8 @@ public class SettingsActivity : AppCompatActivity
         if (_settingsService == null)
             return;
 
-        var settings = new LMStudioSettings(endpoint, modelName, isEnabled);
-        _settingsService.SaveLMStudioSettings(settings);
+        var settings = new LLMProviderSettings("lm-studio", endpoint, modelName, null, isEnabled);
+        _settingsService.SaveLLMProviderSettings(settings);
 
         ShowToast("設定を保存しました");
         Finish();

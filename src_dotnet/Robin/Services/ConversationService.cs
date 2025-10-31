@@ -8,7 +8,7 @@ namespace Robin.Services;
 public class ConversationService
 {
     private readonly List<Message> _messages = new();
-    private readonly ISharedPreferences _preferences;
+    private readonly ISharedPreferences? _preferences;
     private const string PreferencesName = "robin_chat";
     private const string MessagesKey = "conversation_messages";
 
@@ -112,6 +112,56 @@ public class ConversationService
     public int MessageCount => _messages.Count;
 
     /// <summary>
+    /// 最後のユーザーメッセージが意味判定失敗している場合、そのメッセージを取得
+    /// </summary>
+    public Message? GetLastSemanticInvalidMessage()
+    {
+        var lastUserMessage = GetLastUserMessage();
+        if (lastUserMessage != null &&
+            lastUserMessage.SemanticValidation != null &&
+            !lastUserMessage.SemanticValidation.IsSemanticValid)
+        {
+            return lastUserMessage;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 最後の意味判定失敗メッセージと新しいテキストを結合してメッセージを更新
+    /// 失敗メッセージがない場合は新規メッセージを追加
+    /// </summary>
+    /// <returns>結合されたテキスト</returns>
+    public string MergeWithLastInvalidMessage(string newText)
+    {
+        var lastInvalidMsg = GetLastSemanticInvalidMessage();
+        if (lastInvalidMsg != null)
+        {
+            // 前のメッセージと結合
+            var mergedText = $"{lastInvalidMsg.Content} {newText}";
+
+            // 前のメッセージの Content を更新
+            lastInvalidMsg.Content = mergedText;
+            lastInvalidMsg.OriginalRecognizedText = mergedText;
+            lastInvalidMsg.SemanticValidation = null; // 再判定のためクリア
+            lastInvalidMsg.DisplayState = MessageDisplayState.RawRecognized;
+
+            SaveMessagesToStorage();
+
+            // UIに更新を通知
+            var index = GetLastUserMessageIndex();
+            if (index >= 0)
+            {
+                MessageAdded?.Invoke(this, lastInvalidMsg);
+            }
+
+            return mergedText;
+        }
+
+        // 失敗メッセージがない場合は新規追加して新しいテキストを返す
+        return newText;
+    }
+
+    /// <summary>
     /// チャット履歴をローカルストレージに保存
     /// </summary>
     private void SaveMessagesToStorage()
@@ -119,7 +169,7 @@ public class ConversationService
         try
         {
             var json = JsonSerializer.Serialize(_messages);
-            var editor = _preferences.Edit();
+            var editor = _preferences?.Edit();
             if (editor != null)
             {
                 editor.PutString(MessagesKey, json);
@@ -140,7 +190,7 @@ public class ConversationService
     {
         try
         {
-            var json = _preferences.GetString(MessagesKey, null);
+            var json = _preferences?.GetString(MessagesKey, null);
             if (!string.IsNullOrEmpty(json))
             {
                 var messages = JsonSerializer.Deserialize<List<Message>>(json);
@@ -165,7 +215,7 @@ public class ConversationService
     {
         try
         {
-            var editor = _preferences.Edit();
+            var editor = _preferences?.Edit();
             if (editor != null)
             {
                 editor.Remove(MessagesKey);

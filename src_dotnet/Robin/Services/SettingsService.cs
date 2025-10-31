@@ -17,6 +17,9 @@ public class SettingsService
     private const string LLMModelNameKey = "llm_model_name";
     private const string LLMEnabledKey = "llm_enabled";
 
+    // LLMプロバイダーコレクション設定キー（新版：複数設定対応）
+    private const string LLMProviderCollectionKey = "llm_provider_collection";
+
     // STTプロバイダー設定キー
     private const string STTProviderKey = "stt_provider";
     private const string STTEndpointKey = "stt_endpoint";
@@ -74,6 +77,56 @@ public class SettingsService
         var isEnabled = _preferences.GetBoolean(LLMEnabledKey, true);
 
         return new LLMProviderSettings(provider, endpoint, modelName, string.IsNullOrWhiteSpace(apiKey) ? null : apiKey, isEnabled);
+    }
+
+    /// <summary>
+    /// LLMプロバイダーコレクションを保存（複数設定対応）
+    /// </summary>
+    public void SaveLLMProviderCollection(LLMProviderCollection collection)
+    {
+        try
+        {
+            var json = JsonSerializer.Serialize(collection);
+            var editor = _preferences.Edit();
+            if (editor != null)
+            {
+                editor.PutString(LLMProviderCollectionKey, json);
+                editor.Commit();
+                Log.Info("SettingsService", "LLMプロバイダーコレクションを保存しました");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SettingsService", $"LLMプロバイダーコレクション保存エラー: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// LLMプロバイダーコレクションを読み込み（複数設定対応）
+    /// </summary>
+    public LLMProviderCollection LoadLLMProviderCollection()
+    {
+        try
+        {
+            var json = _preferences.GetString(LLMProviderCollectionKey, null);
+            if (!string.IsNullOrEmpty(json))
+            {
+                var collection = JsonSerializer.Deserialize<LLMProviderCollection>(json);
+                if (collection != null)
+                {
+                    Log.Info("SettingsService", "LLMプロバイダーコレクションを読み込みました");
+                    return collection;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SettingsService", $"LLMプロバイダーコレクション読み込みエラー: {ex.Message}");
+        }
+
+        // デフォルト値を返す
+        Log.Info("SettingsService", "デフォルトのLLMプロバイダーコレクションを使用します");
+        return new LLMProviderCollection();
     }
 
     /// <summary>

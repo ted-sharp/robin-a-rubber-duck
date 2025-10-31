@@ -20,7 +20,9 @@ namespace Robin.Services
         private static readonly string TAG = "QwenInferenceService";
 
         // ONNX Runtime推論エンジン（未実装 - 統合時に実装）
+#pragma warning disable CS0414 // フィールドが割り当てられていますが値が使用されていません (将来実装予定)
         private object? _onnxSession;
+#pragma warning restore CS0414
         private QwenTokenizer? _tokenizer;
         private bool _isInitialized = false;
 
@@ -251,7 +253,9 @@ namespace Robin.Services
     internal class QwenTokenizer : IDisposable
     {
         private readonly string _modelPath;
+#pragma warning disable CS0414 // フィールドが割り当てられていますが値が使用されていません (将来実装予定)
         private object? _tokenizerInstance;
+#pragma warning restore CS0414
 
         public QwenTokenizer(string modelPath)
         {

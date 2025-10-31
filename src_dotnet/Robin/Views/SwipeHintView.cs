@@ -29,8 +29,8 @@ public class SwipeHintView : View
         // 矢印の描画用ペイント
         _arrowPaint = new Paint(PaintFlags.AntiAlias)
         {
-            Color = Color.Argb(100, 33, 150, 243), // 半透明のプライマリカラー
-            StrokeWidth = 3 * (context.Resources?.DisplayMetrics?.Density ?? 1f)
+            Color = Color.Argb(80, 33, 150, 243), // より控えめな半透明プライマリカラー
+            StrokeWidth = 2 * (context.Resources?.DisplayMetrics?.Density ?? 1f)
         };
         _arrowPaint.SetStyle(Paint.Style.Stroke);
         _arrowPaint.StrokeCap = Paint.Cap.Round;
@@ -54,18 +54,13 @@ public class SwipeHintView : View
 
         var centerY = h / 2f;
         var density = Context?.Resources?.DisplayMetrics?.Density ?? 1f;
-        var arrowSize = 16 * density; // 矢印のサイズ
+        var arrowSize = 10 * density; // 矢印のサイズ（小さく）
 
-        // 二重の山形矢印を描画
-        // 1つ目の矢印
-        _arrowPath.MoveTo(2, centerY - arrowSize);
-        _arrowPath.LineTo(arrowSize, centerY);
-        _arrowPath.LineTo(2, centerY + arrowSize);
-
-        // 2つ目の矢印（少し右にオフセット）
-        _arrowPath.MoveTo(arrowSize + 4, centerY - arrowSize);
-        _arrowPath.LineTo(arrowSize * 2 + 2, centerY);
-        _arrowPath.LineTo(arrowSize + 4, centerY + arrowSize);
+        // 単一の山形矢印を描画
+        var leftMargin = 4 * density;
+        _arrowPath.MoveTo(leftMargin, centerY - arrowSize);
+        _arrowPath.LineTo(leftMargin + arrowSize, centerY);
+        _arrowPath.LineTo(leftMargin, centerY + arrowSize);
     }
 
     protected override void OnDraw(Canvas? canvas)
@@ -83,7 +78,7 @@ public class SwipeHintView : View
     {
         // 固定幅、親の高さに合わせる
         var density = Context?.Resources?.DisplayMetrics?.Density ?? 1f;
-        var width = (int)(40 * density); // 40dp
+        var width = (int)(24 * density); // 24dp（狭く）
         var height = MeasureSpec.GetSize(heightMeasureSpec);
         SetMeasuredDimension(width, height);
     }

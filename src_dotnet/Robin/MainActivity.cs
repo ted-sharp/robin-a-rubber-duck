@@ -44,12 +44,15 @@ public class MainActivity : AppCompatActivity
     private AzureSttService? _azureSttService = null; // Azure STTサービス
 
     // LLMエラー状態管理
+#pragma warning disable CS0414 // フィールドが割り当てられていますが値が使用されていません (将来使用予定)
     private bool _llmHasError = false; // LLM接続エラーが発生しているか
+#pragma warning restore CS0414
     private bool _llmOnlyTranscriptionMode = false; // 音声認識のみモード（LLM無視）
 
     // 利用可能なモデル (model-prep-config.jsonの並び順に合わせる)
     private readonly string[] _availableModels = new[]
     {
+        "android-default", // Androidデフォルト音声認識
         "azure-stt", // Azure Speech-to-Text API
         "sherpa-onnx-streaming-zipformer-ar_en_id_ja_ru_th_vi_zh-2025-02-10",
         "sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01",
@@ -284,7 +287,7 @@ public class MainActivity : AppCompatActivity
 
             try
             {
-                bool initialized = await _sherpaService.InitializeAsync(modelName, isFilePath: false);
+                bool initialized = await _sherpaService!.InitializeAsync(modelName, isFilePath: false);
                 if (initialized)
                 {
                     Android.Util.Log.Info("MainActivity", $"Sherpa初期化成功: {modelName}");
@@ -338,7 +341,7 @@ public class MainActivity : AppCompatActivity
     /// </summary>
     private void InitializeLLMService()
     {
-        var llmSettings = _settingsService.LoadLLMProviderSettings();
+        var llmSettings = _settingsService!.LoadLLMProviderSettings();
 
         if (llmSettings.IsEnabled && !string.IsNullOrWhiteSpace(llmSettings.ModelName))
         {
@@ -425,15 +428,51 @@ public class MainActivity : AppCompatActivity
         }
     }
 
+    /// <summary>
+    /// モデルファイルが存在するかチェック
+    /// </summary>
+    private bool IsModelAvailable(string modelName)
+    {
+        // Androidデフォルトとクラウドサービスは常に利用可能
+        if (modelName == "android-default" || modelName == "azure-stt")
+        {
+            return true;
+        }
+
+        // Sherpaモデルの場合、assetsフォルダ内の必須ファイルを確認
+        try
+        {
+            using var assetManager = Assets;
+            var files = assetManager?.List(modelName);
+
+            // フォルダが存在し、ファイルが含まれているか確認
+            if (files != null && files.Length > 0)
+            {
+                Android.Util.Log.Debug("MainActivity", $"モデル {modelName} が利用可能: {files.Length}ファイル");
+                return true;
+            }
+            else
+            {
+                Android.Util.Log.Debug("MainActivity", $"モデル {modelName} は存在しません");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Warn("MainActivity", $"モデル存在確認エラー {modelName}: {ex.Message}");
+            return false;
+        }
+    }
 
     private void ShowModelSelectionDialog()
     {
         var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
         builder.SetTitle("音声認識モデルを選択");
 
-        // モデルの表示名とサイズ (model-prep-config.jsonの並び順に合わせる)
-        var modelDisplayNames = new string[]
+        // モデルの基本表示名とサイズ (model-prep-config.jsonの並び順に合わせる)
+        var baseDisplayNames = new string[]
         {
+            "Android デフォルト音声認識 - オンライン",
             "Azure STT (クラウドAPI) - オンライン専用",
             "Streaming Zipformer (8言語) - 247MB",
             "Zipformer Ja (高精度日本語) - 680MB",
@@ -441,6 +480,25 @@ public class MainActivity : AppCompatActivity
             "Whisper Tiny (多言語) - 104MB",
             "SenseVoice (多言語) - 238MB"
         };
+
+        // モデルの存在確認と表示名の更新
+        var modelDisplayNames = new string[baseDisplayNames.Length];
+        var modelAvailability = new bool[_availableModels.Length];
+
+        for (int i = 0; i < _availableModels.Length; i++)
+        {
+            bool isAvailable = IsModelAvailable(_availableModels[i]);
+            modelAvailability[i] = isAvailable;
+
+            if (isAvailable)
+            {
+                modelDisplayNames[i] = baseDisplayNames[i];
+            }
+            else
+            {
+                modelDisplayNames[i] = baseDisplayNames[i] + " (未ダウンロード)";
+            }
+        }
 
         // 現在のモデルのインデックスを取得
         int checkedItem = -1;
@@ -459,11 +517,23 @@ public class MainActivity : AppCompatActivity
         AndroidX.AppCompat.App.AlertDialog? dialog = null;
         builder.SetSingleChoiceItems(modelDisplayNames, checkedItem, (sender, e) =>
         {
+            // モデルが利用可能かチェック
+            if (!modelAvailability[e.Which])
+            {
+                ShowToast("このモデルはダウンロードされていません");
+                return;
+            }
+
             var selectedModel = _availableModels[e.Which];
             dialog?.Dismiss();
 
+            // Androidデフォルト音声認識の場合
+            if (selectedModel == "android-default")
+            {
+                LoadAndroidDefaultStt();
+            }
             // Azure STTの場合は設定ファイル選択ダイアログを表示
-            if (selectedModel == "azure-stt")
+            else if (selectedModel == "azure-stt")
             {
                 ShowAzureSttConfigFileSelectionDialog();
             }
@@ -485,6 +555,244 @@ public class MainActivity : AppCompatActivity
 
         dialog = builder.Create();
         dialog?.Show();
+    }
+
+    private void ShowLlmModelSelectionDialog()
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("LLMモデルを選択");
+
+        // LLMモデルの選択肢
+        var llmModelNames = new string[]
+        {
+            "LM Studio 1（自宅）",
+            "LM Studio 2（職場）",
+            "LM Studio 設定を編集...",
+            "設定ファイルから読み込み..."
+        };
+
+        AndroidX.AppCompat.App.AlertDialog? dialog = null;
+        builder.SetItems(llmModelNames, (sender, e) =>
+        {
+            dialog?.Dismiss();
+
+            switch (e.Which)
+            {
+                case 0: // LM Studio 1
+                    LoadLlmProvider("lmStudio1");
+                    break;
+                case 1: // LM Studio 2
+                    LoadLlmProvider("lmStudio2");
+                    break;
+                case 2: // LM Studio設定画面
+                    var intent = new Android.Content.Intent(this, typeof(LMStudioSettingsActivity));
+                    StartActivity(intent);
+                    break;
+                case 3: // ファイル選択
+                    ShowLlmConfigFileSelectionDialog();
+                    break;
+            }
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) =>
+        {
+            dialog?.Dismiss();
+        });
+
+        dialog = builder.Create();
+        dialog?.Show();
+    }
+
+    private void LoadLlmProvider(string providerKey)
+    {
+        RunOnUiThread(() =>
+        {
+            try
+            {
+                if (_settingsService == null)
+                {
+                    Toast.MakeText(this, "設定サービスが初期化されていません", ToastLength.Short)?.Show();
+                    return;
+                }
+
+                // コレクションを読み込み
+                var collection = _settingsService.LoadLLMProviderCollection();
+
+                // 現在のプロバイダーを更新
+                collection.CurrentProvider = providerKey;
+
+                // 保存
+                _settingsService.SaveLLMProviderCollection(collection);
+
+                // 現在の設定を取得して表示
+                var currentSettings = collection.GetCurrentSettings();
+                if (currentSettings != null)
+                {
+                    var displayName = providerKey == "lmStudio1" ? "LM Studio 1（自宅）" : "LM Studio 2（職場）";
+
+                    // OpenAIServiceを再初期化
+                    InitializeLLMProvider(currentSettings);
+
+                    _statusText?.SetText($"{displayName}に切り替え: {currentSettings.Endpoint}", TextView.BufferType.Normal);
+                    Android.Util.Log.Info("MainActivity", $"LLMプロバイダーを{providerKey}に切り替え: {currentSettings.Endpoint}");
+
+                    Toast.MakeText(this, $"{displayName}に切り替えました", ToastLength.Short)?.Show();
+                }
+            }
+            catch (Exception ex)
+            {
+                _statusText?.SetText($"LLM切り替えエラー: {ex.Message}", TextView.BufferType.Normal);
+                Android.Util.Log.Error("MainActivity", $"LLM切り替えエラー: {ex.Message}");
+                Toast.MakeText(this, $"エラー: {ex.Message}", ToastLength.Short)?.Show();
+            }
+        });
+    }
+
+    private void ShowLlmConfigFileSelectionDialog()
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        builder.SetTitle("LLM設定ファイルを選択");
+
+        // /sdcard/Download/ ディレクトリから .json ファイルを検索
+        var downloadsPath = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDownloads)?.AbsolutePath;
+
+        if (string.IsNullOrEmpty(downloadsPath) || !Directory.Exists(downloadsPath))
+        {
+            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+            errorBuilder.SetTitle("エラー");
+            errorBuilder.SetMessage("Downloadフォルダにアクセスできません");
+            errorBuilder.SetPositiveButton("OK", (s, e) => { });
+            errorBuilder.Show();
+            return;
+        }
+
+        var jsonFiles = Directory.GetFiles(downloadsPath, "*llm*.json")
+            .Concat(Directory.GetFiles(downloadsPath, "*lmstudio*.json"))
+            .Concat(Directory.GetFiles(downloadsPath, "*.json"))
+            .Distinct()
+            .ToArray();
+
+        if (jsonFiles.Length == 0)
+        {
+            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+            errorBuilder.SetTitle("設定ファイルが見つかりません");
+            errorBuilder.SetMessage($"Downloadフォルダに .json ファイルが見つかりません。\n\nパス: {downloadsPath}");
+            errorBuilder.SetPositiveButton("OK", (s, e) => { });
+            errorBuilder.Show();
+            return;
+        }
+
+        var fileNames = jsonFiles.Select(f => Path.GetFileName(f)).ToArray();
+
+        AndroidX.AppCompat.App.AlertDialog? dialog = null;
+        builder.SetItems(fileNames, (sender, e) =>
+        {
+            var selectedFilePath = jsonFiles[e.Which];
+            dialog?.Dismiss();
+            LoadLlmConfigFromFile(selectedFilePath);
+        });
+
+        builder.SetNegativeButton("キャンセル", (sender, e) =>
+        {
+            dialog?.Dismiss();
+        });
+
+        dialog = builder.Create();
+        dialog?.Show();
+    }
+
+    private void LoadLlmConfigFromFile(string configFilePath)
+    {
+        Task.Run(() =>
+        {
+            try
+            {
+                // JSONファイルを読み込み
+                var jsonContent = File.ReadAllText(configFilePath);
+                var loadedSettings = System.Text.Json.JsonSerializer.Deserialize<LLMProviderSettings>(jsonContent);
+
+                if (loadedSettings == null)
+                {
+                    RunOnUiThread(() =>
+                    {
+                        Toast.MakeText(this, "設定ファイルの読み込みに失敗しました", ToastLength.Short)?.Show();
+                    });
+                    return;
+                }
+
+                RunOnUiThread(() =>
+                {
+                    if (_settingsService == null)
+                    {
+                        Toast.MakeText(this, "設定サービスが初期化されていません", ToastLength.Short)?.Show();
+                        return;
+                    }
+
+                    // コレクションを読み込み
+                    var collection = _settingsService.LoadLLMProviderCollection();
+
+                    // ファイルから読み込んだ設定をlmStudio1に保存（上書き）
+                    collection.LmStudio1 = loadedSettings;
+                    collection.CurrentProvider = "lmStudio1";
+
+                    // 保存
+                    _settingsService.SaveLLMProviderCollection(collection);
+
+                    _statusText?.SetText($"LLM設定読込完了: {Path.GetFileName(configFilePath)}", TextView.BufferType.Normal);
+                    Android.Util.Log.Info("MainActivity", $"LLM設定読込: {configFilePath} -> lmStudio1");
+
+                    Toast.MakeText(this, $"設定ファイルを読み込みました（LM Studio 1に保存）", ToastLength.Short)?.Show();
+                });
+            }
+            catch (Exception ex)
+            {
+                RunOnUiThread(() =>
+                {
+                    _statusText?.SetText($"LLM設定読込エラー: {ex.Message}", TextView.BufferType.Normal);
+                    Android.Util.Log.Error("MainActivity", $"LLM設定読込エラー: {ex.Message}");
+                    Toast.MakeText(this, $"エラー: {ex.Message}", ToastLength.Short)?.Show();
+                });
+            }
+        });
+    }
+
+    private void LoadAndroidDefaultStt()
+    {
+        Task.Run(async () =>
+        {
+            try
+            {
+                // 既存のSherpa/Azure STTサービスを停止・破棄
+                _sherpaService?.StopListening();
+                _sherpaService?.Dispose();
+                _sherpaService = null;
+
+                if (_azureSttService != null)
+                {
+                    await _azureSttService.StopListeningAsync();
+                    _azureSttService?.Dispose();
+                    _azureSttService = null;
+                }
+
+                RunOnUiThread(() =>
+                {
+                    // VoiceInputServiceは既に初期化済みなので、モデル名だけ更新
+                    _currentModelName = "android-default";
+                    _statusText?.SetText("Androidデフォルト音声認識を使用", TextView.BufferType.Normal);
+                    Android.Util.Log.Info("MainActivity", "Androidデフォルト音声認識に切り替え");
+
+                    Toast.MakeText(this, "Androidデフォルト音声認識に切り替えました", ToastLength.Short)?.Show();
+                });
+            }
+            catch (Exception ex)
+            {
+                RunOnUiThread(() =>
+                {
+                    _statusText?.SetText($"切り替えエラー: {ex.Message}", TextView.BufferType.Normal);
+                    Android.Util.Log.Error("MainActivity", $"Androidデフォルト音声認識切り替えエラー: {ex.Message}");
+                });
+            }
+        });
     }
 
     private void ShowAzureSttConfigFileSelectionDialog()
@@ -731,13 +1039,13 @@ public class MainActivity : AppCompatActivity
             }
             else if (itemId == Resource.Id.nav_model_management)
             {
-                // モデル管理画面
+                // 音声認識モデル選択
                 ShowModelSelectionDialog();
             }
-            else if (itemId == Resource.Id.nav_settings)
+            else if (itemId == Resource.Id.nav_llm_model)
             {
-                // LM Studio設定画面
-                var intent = new Android.Content.Intent(this, typeof(SettingsActivity));
+                // LLM設定画面を直接開く
+                var intent = new Android.Content.Intent(this, typeof(LMStudioSettingsActivity));
                 StartActivity(intent);
             }
             else if (itemId == Resource.Id.nav_system_prompts)
@@ -798,6 +1106,22 @@ public class MainActivity : AppCompatActivity
                     UpdateMicButtonState();
                 }
             }
+            // Androidデフォルト音声認識使用時
+            else if (_currentModelName == "android-default" && _voiceInputService != null)
+            {
+                if (_voiceInputService.IsContinuousMode)
+                {
+                    // 継続モード中なら停止
+                    _voiceInputService.StopListening();
+                    UpdateMicButtonState();
+                }
+                else
+                {
+                    // 継続モードを有効にして開始
+                    StartVoiceInput(enableContinuousMode: true);
+                    UpdateMicButtonState();
+                }
+            }
             // Sherpa-ONNX使用時
             else if (_useSherpaOnnx && _sherpaService != null)
             {
@@ -817,13 +1141,13 @@ public class MainActivity : AppCompatActivity
             }
             else if (_voiceInputService?.IsContinuousMode == true)
             {
-                // Android標準: 継続モード中なら停止
+                // その他: 継続モード中なら停止
                 _voiceInputService.StopListening();
                 UpdateMicButtonState();
             }
             else
             {
-                // Android標準: 継続モードを有効にして開始
+                // その他: 継続モードを有効にして開始
                 StartVoiceInput(enableContinuousMode: true);
                 UpdateMicButtonState();
             }
@@ -904,13 +1228,21 @@ public class MainActivity : AppCompatActivity
             return;
         }
 
-        if (_useSherpaOnnx && _sherpaService != null)
+        // モデル別の音声認識開始処理
+        if (_currentModelName == "android-default" && _voiceInputService != null)
         {
+            // Androidデフォルト音声認識
+            _voiceInputService.StartListening(enableContinuousMode);
+        }
+        else if (_useSherpaOnnx && _sherpaService != null)
+        {
+            // Sherpa-ONNX
             _sherpaService.StartListening();
         }
-        else
+        else if (_voiceInputService != null)
         {
-            _voiceInputService?.StartListening(enableContinuousMode);
+            // フォールバック: VoiceInputService
+            _voiceInputService.StartListening(enableContinuousMode);
         }
     }
 
@@ -1021,11 +1353,36 @@ public class MainActivity : AppCompatActivity
         // 処理状態を更新：意味判定中
         UpdateProcessingState(RobinProcessingState.EvaluatingMeaning);
 
-        // まずユーザーメッセージを追加（生の認識結果）
-        RunOnUiThread(() =>
+        // 前回の意味判定失敗メッセージがあれば結合
+        var lastInvalidMsg = _conversationService?.GetLastSemanticInvalidMessage();
+        string textToValidate;
+        int messageIndex;
+
+        if (lastInvalidMsg != null)
         {
-            _conversationService?.AddUserMessage(bufferContent);
-        });
+            // 前回の失敗メッセージと結合
+            textToValidate = _conversationService!.MergeWithLastInvalidMessage(bufferContent);
+            messageIndex = _conversationService.GetLastUserMessageIndex();
+
+            Android.Util.Log.Info("MainActivity",
+                $"前回の意味判定失敗メッセージと結合: '{lastInvalidMsg.Content}' + '{bufferContent}' = '{textToValidate}'");
+
+            // UIを更新
+            RunOnUiThread(() =>
+            {
+                _messageAdapter?.UpdateMessage(messageIndex, _conversationService!.GetMessages()[messageIndex]);
+            });
+        }
+        else
+        {
+            // 新規メッセージを追加（生の認識結果）
+            textToValidate = bufferContent;
+            RunOnUiThread(() =>
+            {
+                _conversationService?.AddUserMessage(bufferContent);
+            });
+            messageIndex = _conversationService?.GetLastUserMessageIndex() ?? -1;
+        }
 
         // バッファをフラッシュ
         _inputBuffer?.FlushBuffer();
@@ -1034,13 +1391,13 @@ public class MainActivity : AppCompatActivity
         if (_semanticValidationService == null)
         {
             // 検証サービスなしで直接処理
-            await ProcessValidInput(bufferContent);
+            await ProcessValidInput(textToValidate);
             return;
         }
 
         try
         {
-            var validationResult = await _semanticValidationService.ValidateAsync(bufferContent);
+            var validationResult = await _semanticValidationService.ValidateAsync(textToValidate);
 
             if (validationResult.IsSemanticValid)
             {
@@ -1048,7 +1405,6 @@ public class MainActivity : AppCompatActivity
                 UpdateProcessingState(RobinProcessingState.ProcessingText);
 
                 // 意味が通じた場合、メッセージを更新して LLM処理へ
-                var messageIndex = _conversationService?.GetLastUserMessageIndex() ?? -1;
                 if (messageIndex >= 0)
                 {
                     _conversationService?.UpdateMessageWithSemanticValidation(messageIndex, validationResult);
@@ -1056,20 +1412,31 @@ public class MainActivity : AppCompatActivity
                     // UIを更新（色を変更）
                     RunOnUiThread(() =>
                     {
-                        _messageAdapter?.UpdateMessage(messageIndex, _conversationService.GetMessages()[messageIndex]);
+                        _messageAdapter?.UpdateMessage(messageIndex, _conversationService!.GetMessages()[messageIndex]);
                     });
                 }
 
-                await ProcessValidInput(validationResult.CorrectedText ?? bufferContent);
+                await ProcessValidInput(validationResult.CorrectedText ?? textToValidate);
             }
             else
             {
-                // 意味が通じない場合、次の入力を待つ
+                // 意味が通じない場合、メッセージに検証結果を保存して次の入力を待つ
+                if (messageIndex >= 0)
+                {
+                    _conversationService?.UpdateMessageWithSemanticValidation(messageIndex, validationResult);
+
+                    // UIを更新（失敗状態を表示）
+                    RunOnUiThread(() =>
+                    {
+                        _messageAdapter?.UpdateMessage(messageIndex, _conversationService!.GetMessages()[messageIndex]);
+                    });
+                }
+
                 UpdateProcessingState(RobinProcessingState.Idle);
 
                 RunOnUiThread(() =>
                 {
-                    _statusText!.Text = "❌ 意味が通じません。もう一度お願いします。";
+                    _statusText!.Text = "❌ 意味が通じません。続けて話してください。";
                     _statusText!.Visibility = ViewStates.Visible;
                     // 数秒後にステータステキストを非表示
                     _statusText!.PostDelayed(() =>
@@ -1078,7 +1445,7 @@ public class MainActivity : AppCompatActivity
                     }, 3000);
                 });
 
-                Android.Util.Log.Info("MainActivity", $"意味判定失敗: {validationResult.Feedback}");
+                Android.Util.Log.Info("MainActivity", $"意味判定失敗: {validationResult.Feedback}（次の入力で結合して再判定します）");
             }
         }
         catch (Exception ex)
@@ -1095,7 +1462,7 @@ public class MainActivity : AppCompatActivity
             });
 
             // エラー時は元のテキストで処理
-            await ProcessValidInput(bufferContent);
+            await ProcessValidInput(textToValidate);
         }
     }
 
@@ -1270,12 +1637,17 @@ public class MainActivity : AppCompatActivity
             {
                 isActive = _azureSttService.IsListening; // 聴取中なら赤色
             }
+            // Androidデフォルト音声認識使用時
+            else if (_currentModelName == "android-default" && _voiceInputService != null)
+            {
+                isActive = _voiceInputService.IsContinuousMode; // 継続モード中なら赤色
+            }
             // Sherpa-ONNX使用時
             else if (_useSherpaOnnx && _sherpaService != null)
             {
                 isActive = _sherpaService.IsListening; // 聴取中なら赤色
             }
-            // Android標準使用時
+            // その他（フォールバック）
             else if (_voiceInputService != null)
             {
                 isActive = _voiceInputService.IsContinuousMode; // 継続モード中なら赤色
@@ -1349,18 +1721,18 @@ public class MainActivity : AppCompatActivity
         {
             // ドロワーが完全に閉じたらスワイプヒントを表示
             _activity._swipeHint?.Animate()
-                .Alpha(1f)
-                .SetDuration(200)
-                .Start();
+                ?.Alpha(1f)
+                ?.SetDuration(200)
+                ?.Start();
         }
 
         public void OnDrawerOpened(View drawerView)
         {
             // ドロワーが完全に開いたらスワイプヒントを非表示
             _activity._swipeHint?.Animate()
-                .Alpha(0f)
-                .SetDuration(200)
-                .Start();
+                ?.Alpha(0f)
+                ?.SetDuration(200)
+                ?.Start();
         }
 
         public void OnDrawerSlide(View drawerView, float slideOffset)
@@ -1387,6 +1759,17 @@ public class MainActivity : AppCompatActivity
                 _statusText.Text = $"{e.Status} ({e.ProgressPercentage}%)";
             }
         });
+    }
+
+    protected override void OnResume()
+    {
+        base.OnResume();
+
+        // LM Studio設定画面から戻ってきた場合、LLMサービスを再初期化
+        InitializeLLMService();
+
+        // システムプロンプト設定を再適用
+        ApplySystemPromptSettings();
     }
 
     protected override void OnDestroy()

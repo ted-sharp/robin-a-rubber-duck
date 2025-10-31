@@ -107,14 +107,12 @@ public sealed class MessageAdapter : RecyclerView.Adapter
     private sealed class UserMessageViewHolder : RecyclerView.ViewHolder
     {
         private readonly TextView _messageText;
-        private readonly TextView _timeText;
         private readonly LinearLayout _rootLayout;
 
         public UserMessageViewHolder(View itemView) : base(itemView)
         {
             _rootLayout = (LinearLayout)itemView;
             _messageText = itemView.FindViewById<TextView>(Resource.Id.user_message_text)!;
-            _timeText = itemView.FindViewById<TextView>(Resource.Id.user_message_time)!;
         }
 
         public void Bind(Message message)
@@ -129,8 +127,6 @@ public sealed class MessageAdapter : RecyclerView.Adapter
             {
                 _messageText.Text = message.GetDisplayContent();
             }
-
-            _timeText.Text = message.FormattedTime;
 
             // 意味解析済みの場合は色を変更
             if (message.IsSemanticValidationApplied)
@@ -171,20 +167,17 @@ public sealed class MessageAdapter : RecyclerView.Adapter
     private sealed class AIMessageViewHolder : RecyclerView.ViewHolder
     {
         private readonly TextView _messageText;
-        private readonly TextView _timeText;
         private readonly LinearLayout _rootLayout;
 
         public AIMessageViewHolder(View itemView) : base(itemView)
         {
             _rootLayout = (LinearLayout)itemView;
             _messageText = itemView.FindViewById<TextView>(Resource.Id.ai_message_text)!;
-            _timeText = itemView.FindViewById<TextView>(Resource.Id.ai_message_time)!;
         }
 
         public void Bind(Message message)
         {
             _messageText.Text = message.GetDisplayContent();
-            _timeText.Text = message.FormattedTime;
         }
 
         public void SetCompactSpacing(bool isCompact)

@@ -6,13 +6,13 @@
     "streaming-zipformer-multilingual",
 
     // Japanese only (680 MB) - High accuracy
-    "zipformer-ja-reazonspeech"
+    "zipformer-ja-reazonspeech",
 
     // Japanese (625 MB) - High accuracy model
     // "nemo-parakeet-cja",
 
     // Multilingual (104 MB) - Lightweight alternative
-    // "whisper-tiny",
+    "whisper-tiny",
 
     // Multilingual (238 MB) - Japanese, Chinese, English, Korean, Cantonese
     //"sense-voice-ja-zh-en",

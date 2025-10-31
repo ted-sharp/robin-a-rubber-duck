@@ -152,15 +152,17 @@ JSON形式で必ず以下の構造で応答してください：
 
     /// <summary>
     /// JSONファイルからシステムプロンプトを読み込む
+    /// Assets/Resources/raw/system_prompts.json から読み込みます
     /// </summary>
     public static void LoadFromJson(Context context)
     {
         try
         {
-            using var stream = context.Assets?.Open("system_prompts.json");
+            // Assets/Resources/raw/system_prompts.json から読み込む
+            using var stream = context.Assets?.Open("Resources/raw/system_prompts.json");
             if (stream == null)
             {
-                Android.Util.Log.Warn("SystemPrompts", "system_prompts.json not found, using defaults");
+                Android.Util.Log.Warn("SystemPrompts", "system_prompts.json not found in Assets, using defaults");
                 return;
             }
 
@@ -170,7 +172,7 @@ JSON形式で必ず以下の構造で応答してください：
 
             if (_loadedConfig != null)
             {
-                Android.Util.Log.Info("SystemPrompts", "Successfully loaded system prompts from JSON");
+                Android.Util.Log.Info("SystemPrompts", $"Successfully loaded system prompts from Assets (ConversationPrompt: {_loadedConfig.ConversationPrompt?.Length ?? 0} chars, SemanticValidationPrompt: {_loadedConfig.SemanticValidationPrompt?.Length ?? 0} chars)");
             }
             else
             {
@@ -179,7 +181,7 @@ JSON形式で必ず以下の構造で応答してください：
         }
         catch (Exception ex)
         {
-            Android.Util.Log.Error("SystemPrompts", $"Error loading system_prompts.json: {ex.Message}");
+            Android.Util.Log.Error("SystemPrompts", $"Error loading system_prompts.json: {ex.Message}\nStack trace: {ex.StackTrace}");
             _loadedConfig = null;
         }
     }

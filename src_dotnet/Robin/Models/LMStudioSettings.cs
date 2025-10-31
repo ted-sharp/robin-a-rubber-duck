@@ -52,6 +52,41 @@ public class LLMProviderSettings
 }
 
 /// <summary>
+/// 複数のLLMプロバイダー設定を保存
+/// </summary>
+public class LLMProviderCollection
+{
+    [JsonPropertyName("lmStudio1")]
+    public LLMProviderSettings? LmStudio1 { get; set; }
+
+    [JsonPropertyName("lmStudio2")]
+    public LLMProviderSettings? LmStudio2 { get; set; }
+
+    [JsonPropertyName("currentProvider")]
+    public string CurrentProvider { get; set; } = "lmStudio1";
+
+    public LLMProviderCollection()
+    {
+        // デフォルト値
+        LmStudio1 = new LLMProviderSettings("lm-studio", "http://192.168.0.7:1234", "gpt-3.5-turbo", null, true);
+        LmStudio2 = new LLMProviderSettings("lm-studio", "http://192.168.0.8:1234", "gpt-3.5-turbo", null, false);
+    }
+
+    /// <summary>
+    /// 現在アクティブな設定を取得
+    /// </summary>
+    public LLMProviderSettings? GetCurrentSettings()
+    {
+        return CurrentProvider switch
+        {
+            "lmStudio1" => LmStudio1,
+            "lmStudio2" => LmStudio2,
+            _ => LmStudio1
+        };
+    }
+}
+
+/// <summary>
 /// 旧互換性のためのLMStudioSettings（廃止予定）
 /// </summary>
 [Obsolete("Use LLMProviderSettings instead")]
