@@ -4,48 +4,116 @@
 
 Robin アプリケーションは、JSON形式の設定ファイルをインポートして、複数の設定を一度に適用できます。これにより、異なるデバイス間での設定共有や、初期セットアップの効率化が実現できます。
 
-複数のLLMプロバイダーに対応しており、OpenAI APIまたはLM Studioを自由に選択できます。
+**最新版（2025年11月）**: 複数のLLM・ASRプロバイダーに対応し、個別のJSON設定ファイルをインポート可能になりました。
 
 ## 対応する設定
 
-### 1. LLM（言語モデル）設定 - 複数プロバイダー対応
-- **プロバイダー**: 使用するLLMプロバイダー（"openai" または "lm-studio"）
-- **エンドポイント**: APIサーバーのURL（LM Studio使用時、またはカスタムエンドポイント）
-- **APIキー**: OpenAI API使用時に必須
-- **モデル名**: 使用するモデルの名前
-- **有効化**: LLM機能の有効/無効
+### 1. LLM（会話AI）プロバイダー設定
 
-### 2. 音声認識設定
-- **エンジン**: 使用する音声認識エンジン（"sherpa" または "android-standard"）
-- **言語**: 認識対象言語（"ja", "en", "zh", "ko"など）
-- **モデル名**: 使用する音声認識モデル
+**対応プロバイダー**:
+- **OpenAI**: GPT-4o, GPT-4o-mini, GPT-3.5-turbo
+- **Azure OpenAI**: Microsoft Azure上のOpenAIモデル
+- **Anthropic Claude**: Claude 3.5 Sonnet, Claude 3.5 Haiku
+- **LM Studio**: ローカルネットワーク上の自己ホストLLM（2プロファイル対応）
 
-### 3. その他の設定
-- **詳細ログ**: ログ出力の詳細度
-- **テーマ**: UIテーマの選択
+**設定項目**:
+- **provider**: プロバイダー種別（"openai", "azure-openai", "claude", "lm-studio"）
+- **endpoint**: APIエンドポイントURL
+- **apiKey**: APIキー（OpenAI/Azure/Claude）、LM Studioの場合はnull
+- **modelName**: モデル名またはデプロイメント名
+- **isEnabled**: プロバイダー有効/無効
+
+### 2. ASR（音声認識）プロバイダー設定
+
+**対応プロバイダー**:
+- **Android標準**: システム提供のSpeechRecognizer
+- **Sherpa-ONNX**: オフライン音声認識（4モデル対応）
+- **Azure Speech-to-Text**: Microsoft Azure音声認識API
+- **Faster Whisper**: LAN内サーバー上のWhisperモデル
+
+**設定項目**:
+- **provider**: プロバイダー種別（"android-standard", "sherpa-onnx", "azure", "faster-whisper"）
+- **endpoint**: APIエンドポイントURL（クラウド/LANサーバー）
+- **apiKey**: APIキー（Azure STTの場合）
+- **language**: 認識言語（"ja", "en", "zh", "ko", "auto"）
+- **modelName**: Sherpa-ONNXモデル名
+- **subscriptionKey**: Azure STTサブスクリプションキー
+- **region**: Azure STTリージョン
 
 ## 設定ファイルの形式
 
-設定ファイルは JSON 形式で、以下の構造を持ちます：
+**最新版（2025年11月）**: プロバイダーごとに個別のJSON設定ファイルを使用します。
 
+### LLM設定ファイル例
+
+**OpenAI** (`llm-openai.json`):
 ```json
 {
-  "llmSettings": {
-    "provider": "lm-studio",
-    "endpoint": "http://192.168.0.7:1234",
-    "modelName": "openai/gpt-oss-20b",
-    "apiKey": null,
-    "isEnabled": true
-  },
-  "voiceSettings": {
-    "engine": "sherpa",
-    "language": "ja",
-    "modelName": "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09"
-  },
-  "otherSettings": {
-    "verboseLogging": false,
-    "theme": "light"
-  }
+  "provider": "openai",
+  "endpoint": "https://api.openai.com/v1",
+  "apiKey": "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "modelName": "gpt-4o-mini",
+  "isEnabled": true
+}
+```
+
+**Azure OpenAI** (`llm-azure-openai.json`):
+```json
+{
+  "provider": "azure-openai",
+  "endpoint": "https://YOUR-RESOURCE-NAME.openai.azure.com",
+  "apiKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "modelName": "gpt-4o-mini",
+  "isEnabled": true
+}
+```
+
+**Claude** (`llm-claude.json`):
+```json
+{
+  "provider": "claude",
+  "endpoint": "https://api.anthropic.com/v1",
+  "apiKey": "sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "modelName": "claude-3-5-sonnet-20241022",
+  "isEnabled": true
+}
+```
+
+**LM Studio** (`llm-lm-studio.json`):
+```json
+{
+  "provider": "lm-studio",
+  "endpoint": "http://192.168.0.7:1234",
+  "apiKey": null,
+  "modelName": "qwen2.5-14b-instruct",
+  "isEnabled": true
+}
+```
+
+### ASR設定ファイル例
+
+**Azure Speech-to-Text** (`asr-azure-stt.json`):
+```json
+{
+  "subscriptionKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "region": "japaneast",
+  "language": "ja-JP",
+  "endpointId": null,
+  "enableDictation": false,
+  "enableProfanityFilter": false,
+  "speechRecognitionLanguageAutoDetectionMode": 0
+}
+```
+
+**Faster Whisper** (`asr-faster-whisper.json`):
+```json
+{
+  "provider": "faster-whisper",
+  "endpoint": "http://192.168.0.10:8000",
+  "apiKey": null,
+  "language": "ja",
+  "modelName": null,
+  "isEnabled": true
 }
 ```
 

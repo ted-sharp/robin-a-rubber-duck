@@ -1,0 +1,7 @@
+{
+  "provider": "azure-openai",
+  "endpoint": "https://YOUR-RESOURCE-NAME.openai.azure.com",
+  "apiKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "modelName": "gpt-4o-mini",
+  "isEnabled": true
+}

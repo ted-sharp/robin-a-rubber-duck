@@ -1,9 +1,41 @@
-# Sherpa-ONNX 実装状況レポート
+# Robin 実装状況レポート
 
-## 実装完了日
-2025年10月22日
+## 最新更新（2025年11月）
 
-## 実装概要
+**ステータス**: ✅ **マルチプロバイダー対応完了**
+
+### 実装完了機能
+
+#### LLM (会話AI) プロバイダー
+- ✅ OpenAI GPT (GPT-4o, GPT-4o-mini, GPT-3.5-turbo)
+- ✅ Azure OpenAI Service
+- ✅ Anthropic Claude (Claude 3.5 Sonnet, Haiku)
+- ✅ LM Studio（ローカルLLM、2プロファイル対応）
+- ✅ ドロワーメニューからのプロバイダー切り替え
+- ✅ JSON設定ファイルインポート機能
+- ✅ SharedPreferencesによる設定永続化
+
+#### ASR (音声認識) プロバイダー
+- ✅ Android標準 SpeechRecognizer（オンライン）
+- ✅ Sherpa-ONNX（オフライン、4モデル対応）
+- ✅ Azure Speech-to-Text（クラウドAPI）
+- ✅ Faster Whisper（LANサーバー）
+- ✅ ドロワーメニューからのモデル切り替え
+- ✅ JSON設定ファイルインポート機能
+
+#### 設定管理
+- ✅ SettingsService（SharedPreferences統合）
+- ✅ LLMProviderSettings（マルチプロバイダー対応）
+- ✅ STTProviderSettings（マルチプロバイダー対応）
+- ✅ システムプロンプトカスタマイズ
+- ✅ `/sdcard/Download/` からの設定ファイル読み込み
+- ✅ サンプル設定ファイル（`config-samples/`）
+
+---
+
+## Sherpa-ONNX 実装状況（2025年10月22日完了）
+
+### 実装概要
 
 Androidでのオフライン・連続音声認識を実現するため、Sherpa-ONNXライブラリの統合を完了しました。
 

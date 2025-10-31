@@ -1,0 +1,7 @@
+{
+  "provider": "claude",
+  "endpoint": "https://api.anthropic.com/v1",
+  "apiKey": "sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "modelName": "claude-3-5-sonnet-20241022",
+  "isEnabled": true
+}

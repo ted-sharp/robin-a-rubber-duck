@@ -1,0 +1,7 @@
+{
+  "provider": "lm-studio",
+  "endpoint": "http://192.168.0.7:1234",
+  "apiKey": null,
+  "modelName": "qwen2.5-14b-instruct",
+  "isEnabled": true
+}

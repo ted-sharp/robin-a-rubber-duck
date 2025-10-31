@@ -4,22 +4,34 @@ Android voice chat application with offline speech recognition capabilities. Dis
 
 ## Features
 
-- 🎤 **Dual Speech Recognition Engines**
-  - Android standard SpeechRecognizer (online)
-  - Sherpa-ONNX offline recognition (no network required)
+- 🎤 **Multi-Provider Speech Recognition**
+  - **On-Device**: Android standard SpeechRecognizer, Sherpa-ONNX offline (4 models)
+  - **Cloud API**: Azure Speech-to-Text
+  - **LAN Server**: Faster Whisper (self-hosted)
+  - Runtime switching via drawer menu
 
-- 🌐 **Japanese Language Focus**
-  - Optimized for Japanese speech recognition
-  - Multiple Japanese-compatible models available
+- 💬 **Multi-Provider AI Chat**
+  - **Cloud**: OpenAI GPT, Azure OpenAI, Anthropic Claude
+  - **Local**: LM Studio (self-hosted LLM on local network)
+  - Multiple provider profiles (LM Studio 1/2)
+  - Runtime provider switching
 
-- 💬 **AI Chat Integration**
-  - OpenAI API integration for conversational responses
-  - Message history management
+- ⚙️ **Flexible Configuration**
+  - JSON file import for API credentials
+  - Settings persistence via SharedPreferences
+  - Sample configurations in `config-samples/`
+  - Drawer-based settings UI
+
+- 🌐 **Multi-Language Support**
+  - Japanese (optimized)
+  - English, Chinese, Korean, Cantonese (SenseVoice model)
+  - Language-specific models available
 
 - 📱 **Modern Android UI**
-  - Drawer navigation
+  - Drawer navigation with settings
   - RecyclerView-based chat interface
   - Material Design components
+  - Real-time provider status display
 
 ## Project Structure
 
@@ -29,8 +41,10 @@ robin-a-rubber-duck/
 │   ├── Robin/                    # Main MAUI Android application
 │   ├── Robin.Core/               # Shared library (models, services)
 │   └── ModelPrepTool/            # PC-side model preparation tool
-├── scripts/
-│   └── prepare-ja-models.ps1     # Legacy PowerShell script
+├── config-samples/               # External API configuration samples
+│   ├── llm-*.json                # LLM provider configs (OpenAI, Azure, Claude, LM Studio)
+│   ├── asr-*.json                # ASR provider configs (Azure STT, Faster Whisper)
+│   └── README.md                 # Configuration guide
 ├── models-prepared/              # Downloaded Sherpa-ONNX models
 └── claudedocs/                   # Development documentation
 ```
@@ -132,7 +146,26 @@ dotnet run --project src_dotnet/ModelPrepTool -- --model all
 
 This creates `models-prepared/` directory with extracted model files.
 
-#### 2. Build with Models
+#### 2. Configure External APIs (Optional)
+
+For LLM or cloud ASR providers, prepare configuration files:
+
+```bash
+# Copy sample configuration
+cd config-samples/
+cp llm-openai-sample.json llm-openai.local.json
+
+# Edit with your API key
+# nano llm-openai.local.json (or use your preferred editor)
+```
+
+**Available Configurations:**
+- **LLM**: OpenAI, Azure OpenAI, Claude, LM Studio
+- **ASR**: Azure Speech-to-Text, Faster Whisper
+
+See `config-samples/README.md` for detailed configuration guide.
+
+#### 3. Build with Models
 
 ```bash
 # Build the application (models are auto-included as AndroidAssets if present)
@@ -144,7 +177,22 @@ dotnet build -t:Install src_dotnet/Robin/Robin.csproj
 
 The build system automatically detects models in `models-prepared/` and includes them in the APK.
 
-#### 3. View Logs
+#### 4. Import Configuration (if using external APIs)
+
+```bash
+# Transfer config to device
+adb push llm-openai.local.json /sdcard/Download/
+
+# Or use USB file transfer to copy to Download folder
+```
+
+In the app:
+1. Open drawer menu (swipe from left)
+2. Select "LLMモデル選択" or "音声認識モデル管理"
+3. Choose provider and tap "設定ファイルから読み込み"
+4. Select your config file from Downloads
+
+#### 5. View Logs
 
 ```bash
 # Monitor app logs
@@ -165,17 +213,54 @@ adb shell "ls -lh /sdcard/Download/sherpa-models/"
 
 In the future, the app will support runtime model selection from device storage.
 
-## Available Speech Recognition Models
+## Available Providers
 
-### SenseVoice Multilingual (int8)
-- **Size**: ~238 MB (extracted)
-- **Languages**: Japanese, Chinese, English, Korean, Cantonese
-- **Use Case**: General purpose, multilingual support
+### Speech Recognition (ASR)
 
-### Zipformer Japanese ReazonSpeech
-- **Size**: ~680 MB (extracted)
-- **Languages**: Japanese only
-- **Use Case**: High accuracy Japanese-specific recognition
+**On-Device Recognition:**
+1. **Android Standard SpeechRecognizer**
+   - Online, requires network
+   - System-provided recognition
+   - Quick setup, no additional configuration
+
+2. **Sherpa-ONNX Offline Models**
+   - **SenseVoice Multilingual (int8)**: ~238 MB, Japanese/Chinese/English/Korean/Cantonese
+   - **Zipformer Japanese ReazonSpeech**: ~680 MB, High accuracy Japanese
+   - **Nemo CTC Japanese**: ~625 MB, Alternative Japanese model
+   - **Streaming Zipformer Multilingual**: ~247 MB, 8 languages
+
+**Cloud/Network Recognition:**
+3. **Azure Speech-to-Text**
+   - Microsoft Azure cloud service
+   - High accuracy, multiple languages
+   - Requires API subscription
+
+4. **Faster Whisper (LAN Server)**
+   - Self-hosted on local network
+   - OpenAI Whisper model variants
+   - No cloud dependency, local processing
+
+### AI Chat (LLM)
+
+**Cloud Providers:**
+1. **OpenAI**
+   - Models: GPT-4o, GPT-4o-mini, GPT-3.5-turbo
+   - API key required
+
+2. **Azure OpenAI**
+   - Microsoft Azure-hosted OpenAI models
+   - Enterprise-grade deployment
+
+3. **Anthropic Claude**
+   - Models: Claude 3.5 Sonnet, Claude 3.5 Haiku
+   - API key required
+
+**Local Providers:**
+4. **LM Studio**
+   - Self-hosted LLM on local network
+   - Run open-source models (Qwen, Llama, etc.)
+   - Supports 2 different server profiles
+   - No API key needed
 
 ## Development
 
@@ -211,15 +296,23 @@ adb logcat | grep Robin
 
 ### Project Configuration
 
-**Engine Selection:**
-Toggle between Android standard and Sherpa-ONNX in `MainActivity.cs`:
-```csharp
-private bool _useSherpaOnnx = true; // true: Sherpa-ONNX, false: Android標準
-```
+**Provider Selection:**
+- **ASR**: Select via drawer menu → "音声認識モデル管理"
+  - Android standard, Sherpa-ONNX models, Azure STT, Faster Whisper
+  - Runtime switching supported
+
+- **LLM**: Select via drawer menu → "LLMモデル選択"
+  - OpenAI, Azure OpenAI, Claude, LM Studio (2 profiles)
+  - Runtime switching supported
+
+**Configuration Files:**
+- Place JSON config files in `/sdcard/Download/`
+- Import via drawer menu settings
+- See `config-samples/` for templates
 
 **Permissions:**
 - `RECORD_AUDIO` - Required, requested at runtime
-- `INTERNET` - Required for OpenAI API
+- `INTERNET` - Required for cloud API providers
 
 ## Documentation
 
@@ -229,6 +322,7 @@ private bool _useSherpaOnnx = true; // true: Sherpa-ONNX, false: Android標準
 - **Model Preparation**: `claudedocs/pc-model-preparation-guide.md`
 - **Implementation Status**: `claudedocs/implementation-status.md`
 - **Asset Packaging**: `claudedocs/dotnet-android-assets-guide.md`
+- **API Configuration**: `config-samples/README.md`
 
 ## Key Technologies
 
@@ -351,14 +445,14 @@ Robin app reads models
 
 ## Future Enhancements
 
-- [ ] Settings UI for engine selection
-- [ ] Runtime model download (via Robin.Core)
-- [ ] True streaming recognition (OnlineRecognizer)
-- [ ] Voice Activity Detection (VAD)
-- [ ] Multiple model support with selection UI
-- [ ] Secure API key storage
-- [ ] Text-to-speech for AI responses
+- [ ] Runtime model download UI (via Robin.Core)
+- [ ] True streaming recognition (OnlineRecognizer instead of chunks)
+- [ ] Voice Activity Detection (VAD) integration
+- [ ] Encrypted SharedPreferences for API keys
+- [ ] Text-to-speech (TTS) for AI responses
 - [ ] Offline mode with queued API calls
+- [ ] Conversation export/import
+- [ ] Custom system prompts UI
 
 ## Contributing
 

@@ -1,0 +1,7 @@
+{
+  "provider": "openai",
+  "endpoint": "https://api.openai.com/v1",
+  "apiKey": "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "modelName": "gpt-4o-mini",
+  "isEnabled": true
+}

@@ -1,0 +1,9 @@
+{
+  "subscriptionKey": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "region": "japaneast",
+  "language": "ja-JP",
+  "endpointId": null,
+  "enableDictation": false,
+  "enableProfanityFilter": false,
+  "speechRecognitionLanguageAutoDetectionMode": 0
+}

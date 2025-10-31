@@ -13,6 +13,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Native Android Views (DrawerLayout, RecyclerView)
 - Sherpa-ONNX 1.12.15 for offline speech recognition
 
+**Supported External APIs:**
+- **LLM Providers**: OpenAI, Azure OpenAI, Anthropic Claude, LM Studio (local)
+- **ASR Providers**: Azure Speech-to-Text, Faster Whisper (LAN server)
+- **Configuration**: JSON file import from `/sdcard/Download/` (see `config-samples/`)
+
 ## Development Environment
 
 **Platform**: Windows with MSYS2 bash
@@ -54,36 +59,46 @@ robin-a-rubber-duck/
 │   ├── Services/
 │   │   ├── VoiceInputService.cs    # Android standard SpeechRecognizer
 │   │   ├── SherpaRealtimeService.cs # Sherpa-ONNX offline recognition
-│   │   ├── OpenAIService.cs         # OpenAI API communication
-│   │   └── ConversationService.cs   # Message history management
-│   ├── Adapters/
-│   │   └── MessageAdapter.cs        # RecyclerView adapter for chat
+│   │   ├── AzureSttService.cs      # Azure Speech-to-Text API
+│   │   ├── FasterWhisperService.cs # Faster Whisper LAN server
+│   │   ├── OpenAIService.cs        # Multi-provider LLM API (OpenAI/Azure/Claude/LM Studio)
+│   │   ├── SettingsService.cs      # Settings persistence (SharedPreferences)
+│   │   └── ConversationService.cs  # Message history management
 │   ├── Models/
-│   │   ├── Message.cs               # Chat message model
-│   │   └── OpenAIModels.cs          # OpenAI API DTOs
-│   ├── Views/
-│   │   └── SwipeHintView.cs         # UI hint component
+│   │   ├── Message.cs              # Chat message model
+│   │   ├── LMStudioSettings.cs     # LLM provider settings (multi-provider)
+│   │   ├── STTProviderSettings.cs  # ASR provider settings
+│   │   └── AzureSttConfig.cs       # Azure STT configuration
 │   ├── libs/
-│   │   └── sherpa-onnx-1.12.15.aar  # Sherpa-ONNX native library (37MB)
+│   │   └── sherpa-onnx-1.12.15.aar # Sherpa-ONNX native library (37MB)
 │   ├── Transforms/
-│   │   └── Metadata.xml             # Java binding metadata fixes
+│   │   └── Metadata.xml            # Java binding metadata fixes
 │   └── Resources/raw/
 │       └── sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09/
-│           ├── model.int8.onnx      # SenseVoice model (227MB)
-│           └── tokens.txt            # Token definitions
-└── claudedocs/                       # Claude-specific documentation
-    ├── architecture-design.md        # Full architecture documentation
-    ├── sherpa-onnx-integration.md    # Sherpa-ONNX integration guide
-    ├── sherpa-onnx-setup.md          # Setup instructions
-    └── implementation-status.md      # Implementation progress tracking
+│           ├── model.int8.onnx     # SenseVoice model (227MB)
+│           └── tokens.txt           # Token definitions
+├── config-samples/                  # External API configuration samples
+│   ├── llm-openai-sample.json      # OpenAI configuration
+│   ├── llm-azure-openai-sample.json # Azure OpenAI configuration
+│   ├── llm-lm-studio-sample.json   # LM Studio configuration
+│   ├── llm-claude-sample.json      # Anthropic Claude configuration
+│   ├── asr-azure-stt-sample.json   # Azure Speech-to-Text configuration
+│   ├── asr-faster-whisper-sample.json # Faster Whisper configuration
+│   └── README.md                    # Configuration guide
+└── claudedocs/                      # Claude-specific documentation
+    ├── architecture-design.md       # Full architecture documentation
+    ├── sherpa-onnx-integration.md   # Sherpa-ONNX integration guide
+    ├── sherpa-onnx-setup.md         # Setup instructions
+    └── implementation-status.md     # Implementation progress tracking
 ```
 
 ## Architecture Overview
 
-### Dual Speech Recognition Strategy
+### Multi-Provider Speech Recognition
 
-The app supports **two speech recognition engines** selectable via `MainActivity._useSherpaOnnx`:
+The app supports **multiple speech recognition engines** selectable via drawer menu:
 
+**On-Device ASR:**
 1. **Android Standard** (`VoiceInputService`):
    - System SpeechRecognizer API
    - Online, requires network
@@ -95,7 +110,18 @@ The app supports **two speech recognition engines** selectable via `MainActivity
    - True continuous streaming recognition
    - No system sounds
    - Uses OfflineRecognizer with 3-second chunks
-   - SenseVoice int8 model (Chinese, English, Japanese, Korean, Cantonese)
+   - Multiple models: SenseVoice (multilingual), Zipformer (Japanese), Nemo CTC
+
+**External API ASR:**
+3. **Azure Speech-to-Text** (`AzureSttService`):
+   - Cloud-based recognition via Microsoft Azure
+   - High accuracy, multiple languages
+   - Configuration via JSON file import
+
+4. **Faster Whisper** (`FasterWhisperService`):
+   - LAN server-based recognition
+   - Self-hosted on local network
+   - Whisper model variants
 
 ### Core Service Layer Architecture
 
@@ -112,11 +138,20 @@ The app supports **two speech recognition engines** selectable via `MainActivity
 - Events: RecognitionStarted, RecognitionStopped, FinalResult, Error
 - Async initialization required: `InitializeAsync(modelPath)`
 
-**OpenAIService**:
-- Chat Completion API integration
-- Bearer token authentication
+**OpenAIService** (Multi-Provider LLM):
+- Supports multiple LLM providers: OpenAI, Azure OpenAI, Anthropic Claude, LM Studio
+- Provider-agnostic interface with unified API
+- Bearer token authentication (OpenAI/Claude) or custom endpoint (LM Studio/Azure)
 - JSON serialization with trimming suppression (IL2026)
 - 60-second timeout for API calls
+- Configuration via `SettingsService` (SharedPreferences) or JSON file import
+
+**SettingsService**:
+- Manages settings persistence using Android SharedPreferences
+- Supports LLM provider settings (`LLMProviderSettings`)
+- Supports STT provider settings (`STTProviderSettings`)
+- System prompt customization
+- JSON import/export for configuration transfer
 
 **ConversationService**:
 - Manages message history (List<Message>)
@@ -230,12 +265,44 @@ _recognizer = new OfflineRecognizer(context.Assets, recognizerConfig);
 - Modify model config: `NumThreads`, `DecodingMethod`, `Language`
 - Update `ProcessAudioChunk()` logic for different recognition patterns
 
-### Working with OpenAI API
+### Configuring External APIs
 
-- API key management: Currently in OpenAIService constructor (needs secure storage)
-- Model selection: Passed to `OpenAIService(apiKey, model)`
-- Message history: Managed by ConversationService, sent as context to API
-- Error handling: HttpRequestException for API errors, TaskCanceledException for timeouts
+**LLM Provider Configuration:**
+- Managed via drawer menu: "LLMモデル選択"
+- Supports OpenAI, Azure OpenAI, Claude, LM Studio (2 profiles)
+- Settings stored in SharedPreferences via `SettingsService`
+- JSON import: Place config files in `/sdcard/Download/`, import via UI
+- Sample configs in `config-samples/` directory
+
+**ASR Provider Configuration:**
+- Managed via drawer menu: "音声認識モデル管理"
+- Azure STT: Subscription key, region, language settings
+- Faster Whisper: LAN server endpoint URL
+- JSON import supported for both providers
+
+**Configuration File Format:**
+```json
+// LLM: config-samples/llm-openai-sample.json
+{
+  "provider": "openai",
+  "endpoint": "https://api.openai.com/v1",
+  "apiKey": "sk-proj-...",
+  "modelName": "gpt-4o-mini",
+  "isEnabled": true
+}
+
+// ASR: config-samples/asr-azure-stt-sample.json
+{
+  "subscriptionKey": "...",
+  "region": "japaneast",
+  "language": "ja-JP",
+  "endpointId": null
+}
+```
+
+**Local Development Files:**
+- Use `*.local.json` for personal API keys (gitignored)
+- Example: `llm-openai.local.json`, `asr-azure-stt.local.json`
 
 ## Asset Management
 
@@ -288,14 +355,19 @@ See `claudedocs/dotnet-android-assets-guide.md` for comprehensive documentation.
 
 ## Critical Implementation Notes
 
-### Engine Switching
+### Provider Selection
 
-The `_useSherpaOnnx` flag in MainActivity.cs (line 38) controls which engine is active:
-```csharp
-private bool _useSherpaOnnx = true; // true: Sherpa-ONNX, false: Android標準
-```
+**ASR Selection:**
+- UI-based selection via drawer menu "音声認識モデル管理"
+- Supports runtime switching between providers
+- Selected model stored in `SettingsService`
+- Available models defined in `MainActivity._availableModels[]`
 
-This determines which service's events are connected to UI actions. Future enhancement: expose this in Settings UI.
+**LLM Selection:**
+- UI-based selection via drawer menu "LLMモデル選択"
+- Supports multiple provider profiles (LM Studio 1/2, OpenAI, Azure, Claude)
+- Current provider stored in `LLMProviderCollection.CurrentProvider`
+- Switching re-initializes `OpenAIService` with new provider settings
 
 ### Resource Management
 
@@ -416,14 +488,33 @@ if (_view != null) { _view.Update(); }
 
 **OpenAI errors**: Validate API key, check network connectivity, verify message format
 
+## External API Configuration Samples
+
+Complete configuration samples are available in `config-samples/`:
+
+**LLM Providers:**
+- `llm-openai-sample.json` - OpenAI GPT models
+- `llm-azure-openai-sample.json` - Azure OpenAI Service
+- `llm-lm-studio-sample.json` - LM Studio (local server)
+- `llm-claude-sample.json` - Anthropic Claude
+
+**ASR Providers:**
+- `asr-azure-stt-sample.json` - Azure Speech-to-Text
+- `asr-faster-whisper-sample.json` - Faster Whisper (LAN server)
+
+See `config-samples/README.md` for detailed configuration guide including:
+- API key acquisition
+- Endpoint configuration
+- Server setup instructions
+- Troubleshooting common issues
+
 ## Future Enhancement Areas
 
 Based on implementation status:
 
-1. **Settings UI**: Allow runtime engine switching, API key configuration
-2. **True streaming**: Implement OnlineRecognizer instead of OfflineRecognizer chunks
-3. **VAD integration**: Add voice activity detection to reduce unnecessary processing
-4. **Model selection**: Support multiple Sherpa-ONNX models (accuracy vs. size trade-offs)
-5. **Secure storage**: Move API key from code to encrypted preferences
-6. **TTS integration**: Add text-to-speech for AI responses
-7. **Offline mode**: Cache conversations, queue API calls when offline
+1. **True streaming**: Implement OnlineRecognizer instead of OfflineRecognizer chunks
+2. **VAD integration**: Add voice activity detection to reduce unnecessary processing
+3. **Secure storage**: Encrypted SharedPreferences for API keys
+4. **TTS integration**: Add text-to-speech for AI responses
+5. **Offline mode**: Cache conversations, queue API calls when offline
+6. **Model download UI**: In-app Sherpa-ONNX model download interface
