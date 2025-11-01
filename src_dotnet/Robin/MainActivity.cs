@@ -1873,6 +1873,9 @@ public class MainActivity : AppCompatActivity
         _messageAdapter = new MessageAdapter(_conversationService.GetMessages());
         _recyclerView.SetAdapter(_messageAdapter);
         _recyclerView.SetLayoutManager(new LinearLayoutManager(this));
+
+        // 初期表示時に最後のメッセージまでスクロール
+        _recyclerView.Post(() => ScrollToBottom());
     }
 
     private void SetupDrawerNavigation()
@@ -1940,6 +1943,12 @@ public class MainActivity : AppCompatActivity
 
         _micButton.Click += async (sender, e) =>
         {
+            // ドロワーが開いていたら閉じる
+            if (_drawerLayout?.IsDrawerOpen((int)GravityFlags.Start) == true)
+            {
+                _drawerLayout.CloseDrawer((int)GravityFlags.Start);
+            }
+
             // Azure STT使用時
             if (_currentModelName == "azure-stt" && _azureSttService != null)
             {
@@ -2618,6 +2627,12 @@ public class MainActivity : AppCompatActivity
 
         _sendButton.Click += (sender, e) =>
         {
+            // ドロワーが開いていたら閉じる
+            if (_drawerLayout?.IsDrawerOpen((int)GravityFlags.Start) == true)
+            {
+                _drawerLayout.CloseDrawer((int)GravityFlags.Start);
+            }
+
             // 最新のユーザーメッセージを取得
             var messages = _conversationService?.GetMessages();
             if (messages == null || messages.Count == 0)
@@ -2883,13 +2898,6 @@ public class MainActivity : AppCompatActivity
             if (_currentAsrModelText != null)
             {
                 var displayName = _currentModelName ?? "未初期化";
-
-                // モデル名を短縮表示（最大20文字）
-                if (displayName.Length > 20)
-                {
-                    displayName = displayName.Substring(0, 17) + "...";
-                }
-
                 _currentAsrModelText.Text = $"ASR: {displayName}";
             }
         });
