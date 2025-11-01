@@ -8,7 +8,9 @@ namespace Robin.Services;
 public class SettingsService
 {
     private readonly ISharedPreferences _preferences;
+    private readonly Context _context;
     private const string PreferencesName = "robin_settings";
+    private const string UserContextFileName = "user_context.txt";
 
     // LLMプロバイダー設定キー
     private const string LLMProviderKey = "llm_provider";
@@ -47,8 +49,39 @@ public class SettingsService
 
     public SettingsService(Context context)
     {
+        _context = context;
         _preferences = context.GetSharedPreferences(PreferencesName, FileCreationMode.Private)
             ?? throw new InvalidOperationException("Failed to initialize SharedPreferences");
+
+        // 初回起動時にassetsからuser_context.txtをコピー
+        InitializeUserContextFile();
+    }
+
+    /// <summary>
+    /// ユーザーコンテキストファイルを初期化（assetsからコピー）
+    /// </summary>
+    private void InitializeUserContextFile()
+    {
+        try
+        {
+            var userContextPath = System.IO.Path.Combine(_context.FilesDir?.AbsolutePath ?? "", UserContextFileName);
+
+            // ファイルが存在しない場合のみコピー
+            if (!File.Exists(userContextPath))
+            {
+                using var assetStream = _context.Assets?.Open($"Resources/raw/{UserContextFileName}");
+                if (assetStream != null)
+                {
+                    using var fileStream = new FileStream(userContextPath, FileMode.Create);
+                    assetStream.CopyTo(fileStream);
+                    Log.Info("SettingsService", $"ユーザーコンテキストファイルを初期化: {userContextPath}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SettingsService", $"ユーザーコンテキストファイル初期化エラー: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -491,22 +524,44 @@ public class SettingsService
     /// </summary>
     public void SaveUserContext(string context)
     {
-        var editor = _preferences.Edit();
-        if (editor != null)
+        try
         {
+            var userContextPath = System.IO.Path.Combine(_context.FilesDir?.AbsolutePath ?? "", UserContextFileName);
             var contextText = context ?? "";
-            editor.PutString(UserContextKey, contextText);
-            editor.Commit();
-            Log.Info("SettingsService", $"ユーザーコンテキストを保存: {contextText.Length} 文字");
+            File.WriteAllText(userContextPath, contextText);
+            Log.Info("SettingsService", $"ユーザーコンテキストを保存: {contextText.Length} 文字 -> {userContextPath}");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SettingsService", $"ユーザーコンテキスト保存エラー: {ex.Message}");
         }
     }
 
     /// <summary>
-    /// ユーザーコンテキストを読み込む
+    /// ユーザーコンテキストを読み込む（テキストファイルから読み込み）
     /// </summary>
     public string LoadUserContext()
     {
-        return _preferences.GetString(UserContextKey, "") ?? "";
+        try
+        {
+            var userContextPath = System.IO.Path.Combine(_context.FilesDir?.AbsolutePath ?? "", UserContextFileName);
+            if (File.Exists(userContextPath))
+            {
+                var content = File.ReadAllText(userContextPath);
+                Log.Info("SettingsService", $"ユーザーコンテキストを読み込み: {content.Length} 文字");
+                return content;
+            }
+            else
+            {
+                Log.Warn("SettingsService", "ユーザーコンテキストファイルが存在しません");
+                return "";
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SettingsService", $"ユーザーコンテキスト読み込みエラー: {ex.Message}");
+            return "";
+        }
     }
 
     /// <summary>
@@ -532,17 +587,30 @@ public class SettingsService
     }
 
     /// <summary>
-    /// ユーザーコンテキスト設定をクリア
+    /// ユーザーコンテキスト設定をクリア（ファイルを削除）
     /// </summary>
     public void ClearUserContext()
     {
-        var editor = _preferences.Edit();
-        if (editor != null)
+        try
         {
-            editor.Remove(UserContextKey);
-            editor.Remove(UseUserContextKey);
-            editor.Commit();
-            Log.Info("SettingsService", "ユーザーコンテキスト設定をクリア");
+            var userContextPath = System.IO.Path.Combine(_context.FilesDir?.AbsolutePath ?? "", UserContextFileName);
+            if (File.Exists(userContextPath))
+            {
+                File.Delete(userContextPath);
+                Log.Info("SettingsService", "ユーザーコンテキストファイルを削除");
+            }
+
+            // UseUserContextフラグもクリア
+            var editor = _preferences.Edit();
+            if (editor != null)
+            {
+                editor.Remove(UseUserContextKey);
+                editor.Commit();
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("SettingsService", $"ユーザーコンテキストクリアエラー: {ex.Message}");
         }
     }
 
@@ -585,4 +653,5 @@ public class SettingsService
             SystemPromptSettings = systemPromptSettings
         };
     }
+
 }

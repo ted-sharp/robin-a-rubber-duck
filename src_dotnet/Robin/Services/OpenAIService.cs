@@ -27,7 +27,7 @@ public class OpenAIService
         _httpClient = new HttpClient
         {
             BaseAddress = new Uri(_baseAddress),
-            Timeout = TimeSpan.FromSeconds(5)
+            Timeout = TimeSpan.FromSeconds(60)
         };
         _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
         Log.Info("OpenAIService", $"初期化完了 [OpenAI] - Model: {_model}");
@@ -44,7 +44,7 @@ public class OpenAIService
         _httpClient = new HttpClient
         {
             BaseAddress = new Uri(_baseAddress),
-            Timeout = TimeSpan.FromSeconds(5)
+            Timeout = TimeSpan.FromSeconds(60)
         };
         // LM Studioの場合はAuthorizationヘッダーは不要
 
@@ -61,7 +61,7 @@ public class OpenAIService
 
         _httpClient = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(5)
+            Timeout = TimeSpan.FromSeconds(60)
         };
 
         if (_provider == "openai")
@@ -74,11 +74,32 @@ public class OpenAIService
             _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {apiKey}");
             Log.Info("OpenAIService", $"初期化完了 [OpenAI] - Model: {_model}");
         }
-        else if (_provider == "lm-studio")
+        else if (_provider == "lm-studio" || _provider.StartsWith("lm-studio-"))
         {
             _baseAddress = endpoint.TrimEnd('/') + "/v1/";
             // LM Studioの場合はAuthorizationヘッダーは不要
             Log.Info("OpenAIService", $"初期化完了 [LM Studio] - BaseAddress: {_baseAddress}, Model: {_model}");
+        }
+        else if (_provider == "azure-openai")
+        {
+            _baseAddress = endpoint.TrimEnd('/') + "/";
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                throw new ArgumentException("Azure OpenAI APIキーが必要です", nameof(apiKey));
+            }
+            _httpClient.DefaultRequestHeaders.Add("api-key", apiKey);
+            Log.Info("OpenAIService", $"初期化完了 [Azure OpenAI] - Endpoint: {_baseAddress}, Deployment: {_model}");
+        }
+        else if (_provider == "claude")
+        {
+            _baseAddress = endpoint.TrimEnd('/') + "/";
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                throw new ArgumentException("Claude APIキーが必要です", nameof(apiKey));
+            }
+            _httpClient.DefaultRequestHeaders.Add("x-api-key", apiKey);
+            _httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+            Log.Info("OpenAIService", $"初期化完了 [Claude] - Model: {_model}");
         }
         else
         {
@@ -93,7 +114,7 @@ public class OpenAIService
     {
         try
         {
-            Log.Info("OpenAIService", $"リクエスト開始 - URL: {_httpClient.BaseAddress}chat/completions, メッセージ数: {conversationHistory.Count}");
+            Log.Info("OpenAIService", $"リクエスト開始 - Provider: {_provider}, URL: {_httpClient.BaseAddress}chat/completions, Model: {_model}, メッセージ数: {conversationHistory.Count}");
 
             var request = BuildRequest(conversationHistory);
             Log.Debug("OpenAIService", $"リクエストボディ作成完了");
@@ -105,6 +126,14 @@ public class OpenAIService
             {
                 var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 Log.Error("OpenAIService", $"APIエラー ({response.StatusCode}): {errorContent}");
+
+                // 認証エラーの場合は詳細を出力
+                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                {
+                    Log.Error("OpenAIService", $"認証エラー - Provider: {_provider}, Endpoint: {_baseAddress}");
+                    throw new HttpRequestException($"認証エラー ({response.StatusCode}): APIキーまたはエンドポイント設定を確認してください");
+                }
+
                 throw new HttpRequestException($"API Error ({response.StatusCode}): {errorContent}");
             }
 
@@ -125,17 +154,23 @@ public class OpenAIService
         }
         catch (TaskCanceledException ex)
         {
-            Log.Error("OpenAIService", $"タイムアウト: {ex.Message}");
-            throw new TimeoutException("APIリクエストがタイムアウトしました");
+            Log.Error("OpenAIService", $"タイムアウト (60秒): Provider: {_provider}, Endpoint: {_baseAddress}, Error: {ex.Message}");
+            throw new TimeoutException($"APIリクエストがタイムアウトしました (60秒) - Provider: {_provider}");
         }
         catch (HttpRequestException ex)
         {
-            Log.Error("OpenAIService", $"HTTP通信エラー: {ex.Message}");
-            throw;
+            Log.Error("OpenAIService", $"HTTP通信エラー: Provider: {_provider}, Endpoint: {_baseAddress}");
+            Log.Error("OpenAIService", $"詳細: {ex.Message}");
+            if (ex.InnerException != null)
+            {
+                Log.Error("OpenAIService", $"内部エラー: {ex.InnerException.Message}");
+            }
+            throw new HttpRequestException($"接続エラー ({_provider}): {ex.Message}", ex);
         }
         catch (Exception ex)
         {
             Log.Error("OpenAIService", $"予期しないエラー: {ex.GetType().Name} - {ex.Message}");
+            Log.Error("OpenAIService", $"スタックトレース: {ex.StackTrace}");
             throw;
         }
     }

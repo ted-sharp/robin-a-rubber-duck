@@ -36,10 +36,11 @@
     <AndroidResource Include="Resources\xml\network_security_config.xml" />
   </ItemGroup>
 
-  <!-- System Prompts JSON Configuration -->
+  <!-- System Prompts and User Context (Text Files) -->
   <ItemGroup>
-    <AndroidAsset Include="Resources\raw\system_prompts.json" />
-    <AndroidAsset Include="Resources\raw\user_context.json" />
+    <AndroidAsset Include="Resources\raw\conversation_prompt.txt" />
+    <AndroidAsset Include="Resources\raw\semantic_validation_prompt.txt" />
+    <AndroidAsset Include="Resources\raw\user_context.txt" />
   </ItemGroup>
 
   <!-- Sherpa-ONNX Model Files (Conditional Assets) -->

@@ -5,9 +5,9 @@
 ## 使い方
 
 1. サンプルファイルをコピーして、実際の設定値に書き換えます
-2. Androidデバイスの `/sdcard/Download/` フォルダーにファイルをコピーします
+2. Androidデバイスの任意の場所（例: `/sdcard/Download/`, `/storage/emulated/0/Documents/` など）にファイルをコピーします
 3. Robinアプリを起動し、サイドドロワーから設定メニューを開きます
-4. 「設定ファイルから読み込み」を選択してファイルをインポートします
+4. 「設定ファイルを選択」をタップしてファイルピッカーで任意の場所から設定ファイルを選択します
 
 ## LLM (会話AI) 設定
 
@@ -179,24 +179,29 @@ python faster_whisper_server.py --host 0.0.0.0 --port 8000 --model large-v3
 **方法1: USBケーブル経由**
 1. AndroidデバイスをPCにUSB接続
 2. ファイル転送モードを選択
-3. `/sdcard/Download/` フォルダーにJSONファイルをコピー
+3. 任意の場所（例: `/sdcard/Download/`, `/storage/emulated/0/Documents/` など）にJSONファイルをコピー
 
 **方法2: ADB経由**
 ```bash
+# Downloadフォルダの場合
 adb push llm-openai-sample.json /sdcard/Download/
+
+# または任意のパスへ
+adb push llm-openai-sample.json /storage/emulated/0/Documents/
 ```
 
 **方法3: クラウドストレージ経由**
 1. Google DriveやDropboxにアップロード
 2. Androidデバイスでダウンロード
-3. Downloadフォルダーに保存されます
+3. 任意のフォルダーに保存できます（アプリ起動時にファイルピッカーで選択）
 
 ## トラブルシューティング
 
 ### 設定ファイルが見つからない
-- ファイルが `/sdcard/Download/` に配置されているか確認
+- ファイルが適切なフォルダに配置されているか確認（`/sdcard/Download/`, `/storage/emulated/0/Documents/` など）
 - ファイル拡張子が `.json` になっているか確認
 - ファイル名に全角文字が含まれていないか確認
+- ファイルピッカーで表示されない場合、ストレージアクセス権限を確認
 
 ### APIキーエラー
 - APIキーが正しくコピーされているか確認

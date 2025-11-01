@@ -147,25 +147,53 @@ public class SettingsActivity : AppCompatActivity
 
             if (config != null)
             {
-                // 設定を適用
-                _settingsService.ApplyConfiguration(config);
+                try
+                {
+                    // 設定を適用
+                    _settingsService.ApplyConfiguration(config);
 
-                // UIを更新
-                LoadSettings();
+                    // UIを更新
+                    LoadSettings();
 
-                ShowToast("設定ファイルをインポートしました");
-                Log.Info("SettingsActivity", "設定ファイルのインポート完了");
+                    // 詳細なフィードバック
+                    var appliedSettings = new List<string>();
+                    if (config.LLMSettings != null)
+                    {
+                        appliedSettings.Add($"LLM: {config.LLMSettings.Provider}");
+                    }
+                    if (config.STTSettings != null)
+                    {
+                        appliedSettings.Add($"STT: {config.STTSettings.Provider}");
+                    }
+                    if (config.SystemPromptSettings?.UseCustomPrompts == true)
+                    {
+                        appliedSettings.Add("システムプロンプット");
+                    }
+
+                    var message = appliedSettings.Count > 0
+                        ? $"✅ インポート完了\n適用項目: {string.Join(", ", appliedSettings)}"
+                        : "✅ 設定ファイルをインポートしました";
+
+                    ShowToast(message);
+                    Log.Info("SettingsActivity", $"設定ファイルのインポート完了: {message}");
+                }
+                catch (ArgumentException argEx)
+                {
+                    ShowToast($"⚠️ 検証エラー: {argEx.Message}");
+                    Log.Error("SettingsActivity", $"設定検証エラー: {argEx.Message}");
+                }
             }
             else
             {
-                ShowToast("設定ファイルの読み込みに失敗しました");
+                ShowToast("❌ 設定ファイルの読み込みに失敗\nJSON形式が正しいか確認してください");
                 Log.Error("SettingsActivity", "設定ファイルの読み込みに失敗");
             }
         }
         catch (Exception ex)
         {
-            ShowToast($"エラー: {ex.Message}");
+            ShowToast($"❌ エラー: {ex.GetType().Name}\n{ex.Message}");
             Log.Error("SettingsActivity", $"ファイル読み込みエラー: {ex.Message}");
+            Log.Error("SettingsActivity", $"詳細: {ex.StackTrace}");
         }
     }
 

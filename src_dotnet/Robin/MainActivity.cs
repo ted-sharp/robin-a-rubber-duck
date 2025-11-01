@@ -1,5 +1,7 @@
 ﻿using Android.Content.PM;
 using Android.Views;
+using AndroidX.Activity.Result;
+using AndroidX.Activity.Result.Contract;
 using AndroidX.AppCompat.App;
 using AndroidX.Core.App;
 using AndroidX.Core.Content;
@@ -17,6 +19,13 @@ namespace Robin;
 public class MainActivity : AppCompatActivity
 {
     private const int RequestRecordAudioPermission = 1;
+
+    // ファイルピッカー用
+    private ActivityResultLauncher? _configFilePickerLauncher;
+    private string? _currentConfigFileType; // "llm", "azure", "fasterwhisper" など
+    private Action<string>? _llmConfigCallback; // LLM設定ファイル選択時のコールバック
+    private Action<string>? _azureConfigCallback; // Azure STT設定ファイル選択時のコールバック
+    private Action<string>? _fasterWhisperConfigCallback; // Faster Whisper設定ファイル選択時のコールバック
 
     private DrawerLayout? _drawerLayout;
     private NavigationView? _navigationView;
@@ -78,11 +87,12 @@ public class MainActivity : AppCompatActivity
         base.OnCreate(savedInstanceState);
         SetContentView(Resource.Layout.activity_main);
 
-        // システムプロンプトをJSONから読み込み
-        SystemPrompts.LoadFromJson(this);
+        // システムプロンプトをテキストファイルから読み込み
+        SystemPrompts.LoadFromFiles(this);
 
         InitializeViews();
         InitializeServices();
+        SetupConfigFilePickerLauncher();
         SetupRecyclerView();
         SetupDrawerNavigation();
         SetupMicButton();  // ← このタイミングで登録（Sherpaの初期化と並行実行）
@@ -226,6 +236,17 @@ public class MainActivity : AppCompatActivity
 
         // システムプロンプト設定を読み込んで適用
         ApplySystemPromptSettings();
+    }
+
+    /// <summary>
+    /// 設定ファイルピッカーランチャーの初期化
+    /// </summary>
+    private void SetupConfigFilePickerLauncher()
+    {
+        _configFilePickerLauncher = RegisterForActivityResult(
+            new ActivityResultContracts.GetContent(),
+            new ConfigFilePickerCallback(this)
+        );
     }
 
     /// <summary>
@@ -423,11 +444,25 @@ public class MainActivity : AppCompatActivity
                 Android.Util.Log.Info("MainActivity", $"OpenAI初期化: {llmSettings.ModelName}");
                 ShowToast($"OpenAI接続: {llmSettings.ModelName}");
             }
-            else if (llmSettings.Provider == "lm-studio")
+            else if (llmSettings.Provider.StartsWith("lm-studio"))
             {
                 _openAIService = new OpenAIService(llmSettings.Endpoint, llmSettings.ModelName, isLMStudio: true);
-                Android.Util.Log.Info("MainActivity", $"LM Studio初期化: {llmSettings.Endpoint}");
+                Android.Util.Log.Info("MainActivity", $"LM Studio初期化 [{llmSettings.Provider}]: {llmSettings.Endpoint}, Model: {llmSettings.ModelName}");
                 ShowToast($"LM Studio接続: {llmSettings.ModelName}");
+            }
+            else if (llmSettings.Provider == "azure-openai")
+            {
+                // Azure OpenAI は汎用コンストラクタを使用
+                _openAIService = new OpenAIService(llmSettings.Provider, llmSettings.Endpoint, llmSettings.ModelName, llmSettings.ApiKey);
+                Android.Util.Log.Info("MainActivity", $"Azure OpenAI初期化: {llmSettings.Endpoint}, Deployment: {llmSettings.ModelName}");
+                ShowToast($"Azure OpenAI接続: {llmSettings.ModelName}");
+            }
+            else if (llmSettings.Provider == "claude")
+            {
+                // Claude は汎用コンストラクタを使用（将来の実装のためのプレースホルダー）
+                _openAIService = new OpenAIService(llmSettings.Provider, llmSettings.Endpoint, llmSettings.ModelName, llmSettings.ApiKey);
+                Android.Util.Log.Info("MainActivity", $"Claude初期化: {llmSettings.ModelName}");
+                ShowToast($"Claude接続: {llmSettings.ModelName}");
             }
             else
             {
@@ -436,7 +471,8 @@ public class MainActivity : AppCompatActivity
         }
         catch (Exception ex)
         {
-            Android.Util.Log.Error("MainActivity", $"LLM初期化失敗: {ex.Message}");
+            Android.Util.Log.Error("MainActivity", $"LLM初期化失敗 [Provider: {llmSettings.Provider}, Endpoint: {llmSettings.Endpoint}]: {ex.Message}");
+            Android.Util.Log.Error("MainActivity", $"スタックトレース: {ex.StackTrace}");
             // フォールバック: モック版
             _openAIService = new OpenAIService("mock-api-key");
             ShowToast($"LLM接続失敗: {ex.Message}。モック版を使用します。");
@@ -746,55 +782,8 @@ public class MainActivity : AppCompatActivity
 
     private void ShowLlmConfigFileSelectionDialog()
     {
-        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-        builder.SetTitle("LLM設定ファイルを選択");
-
-        // /sdcard/Download/ ディレクトリから .json ファイルを検索
-        var downloadsPath = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDownloads)?.AbsolutePath;
-
-        if (string.IsNullOrEmpty(downloadsPath) || !Directory.Exists(downloadsPath))
-        {
-            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-            errorBuilder.SetTitle("エラー");
-            errorBuilder.SetMessage("Downloadフォルダにアクセスできません");
-            errorBuilder.SetPositiveButton("OK", (s, e) => { });
-            errorBuilder.Show();
-            return;
-        }
-
-        var jsonFiles = Directory.GetFiles(downloadsPath, "*llm*.json")
-            .Concat(Directory.GetFiles(downloadsPath, "*lmstudio*.json"))
-            .Concat(Directory.GetFiles(downloadsPath, "*.json"))
-            .Distinct()
-            .ToArray();
-
-        if (jsonFiles.Length == 0)
-        {
-            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-            errorBuilder.SetTitle("設定ファイルが見つかりません");
-            errorBuilder.SetMessage($"Downloadフォルダに .json ファイルが見つかりません。\n\nパス: {downloadsPath}");
-            errorBuilder.SetPositiveButton("OK", (s, e) => { });
-            errorBuilder.Show();
-            return;
-        }
-
-        var fileNames = jsonFiles.Select(f => Path.GetFileName(f)).ToArray();
-
-        AndroidX.AppCompat.App.AlertDialog? dialog = null;
-        builder.SetItems(fileNames, (sender, e) =>
-        {
-            var selectedFilePath = jsonFiles[e.Which];
-            dialog?.Dismiss();
-            LoadLlmConfigFromFile(selectedFilePath);
-        });
-
-        builder.SetNegativeButton("キャンセル", (sender, e) =>
-        {
-            dialog?.Dismiss();
-        });
-
-        dialog = builder.Create();
-        dialog?.Show();
+        _currentConfigFileType = "llm";
+        _configFilePickerLauncher?.Launch("application/json");
     }
 
     private void LoadLlmConfigFromFile(string configFilePath)
@@ -1190,54 +1179,9 @@ public class MainActivity : AppCompatActivity
 
     private void ShowLlmConfigFileSelectionDialog(Action<string> onFileSelected)
     {
-        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-        builder.SetTitle("LLM設定ファイルを選択");
-
-        var downloadsPath = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDownloads)?.AbsolutePath;
-
-        if (string.IsNullOrEmpty(downloadsPath) || !Directory.Exists(downloadsPath))
-        {
-            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-            errorBuilder.SetTitle("エラー");
-            errorBuilder.SetMessage("Downloadフォルダにアクセスできません");
-            errorBuilder.SetPositiveButton("OK", (s, e) => { });
-            errorBuilder.Show();
-            return;
-        }
-
-        var jsonFiles = Directory.GetFiles(downloadsPath, "*llm*.json")
-            .Concat(Directory.GetFiles(downloadsPath, "*lmstudio*.json"))
-            .Concat(Directory.GetFiles(downloadsPath, "*.json"))
-            .Distinct()
-            .ToArray();
-
-        if (jsonFiles.Length == 0)
-        {
-            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-            errorBuilder.SetTitle("設定ファイルが見つかりません");
-            errorBuilder.SetMessage($"Downloadフォルダに .json ファイルが見つかりません。\n\nパス: {downloadsPath}");
-            errorBuilder.SetPositiveButton("OK", (s, e) => { });
-            errorBuilder.Show();
-            return;
-        }
-
-        var fileNames = jsonFiles.Select(f => Path.GetFileName(f)).ToArray();
-
-        AndroidX.AppCompat.App.AlertDialog? dialog = null;
-        builder.SetItems(fileNames, (sender, e) =>
-        {
-            var selectedFilePath = jsonFiles[e.Which];
-            dialog?.Dismiss();
-            onFileSelected?.Invoke(selectedFilePath);
-        });
-
-        builder.SetNegativeButton("キャンセル", (sender, e) =>
-        {
-            dialog?.Dismiss();
-        });
-
-        dialog = builder.Create();
-        dialog?.Show();
+        _currentConfigFileType = "llm";
+        _llmConfigCallback = onFileSelected;
+        _configFilePickerLauncher?.Launch("application/json");
     }
 
     private void LoadAndroidDefaultStt()
@@ -1375,51 +1319,9 @@ public class MainActivity : AppCompatActivity
 
     private void ShowAzureSttConfigFileSelectionDialog(Action<string> onFileSelected)
     {
-        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-        builder.SetTitle("Azure STT設定ファイルを選択");
-
-        // /sdcard/Download/ ディレクトリから .json ファイルを検索
-        var downloadsPath = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDownloads)?.AbsolutePath;
-
-        if (string.IsNullOrEmpty(downloadsPath) || !Directory.Exists(downloadsPath))
-        {
-            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-            errorBuilder.SetTitle("エラー");
-            errorBuilder.SetMessage("Downloadフォルダにアクセスできません");
-            errorBuilder.SetPositiveButton("OK", (s, e) => { });
-            errorBuilder.Show();
-            return;
-        }
-
-        var jsonFiles = Directory.GetFiles(downloadsPath, "*.json");
-
-        if (jsonFiles.Length == 0)
-        {
-            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-            errorBuilder.SetTitle("設定ファイルが見つかりません");
-            errorBuilder.SetMessage($"Downloadフォルダに .json ファイルが見つかりません。\n\nパス: {downloadsPath}");
-            errorBuilder.SetPositiveButton("OK", (s, e) => { });
-            errorBuilder.Show();
-            return;
-        }
-
-        var fileNames = jsonFiles.Select(f => Path.GetFileName(f)).ToArray();
-
-        AndroidX.AppCompat.App.AlertDialog? dialog = null;
-        builder.SetItems(fileNames, (sender, e) =>
-        {
-            var selectedFilePath = jsonFiles[e.Which];
-            dialog?.Dismiss();
-            onFileSelected?.Invoke(selectedFilePath);
-        });
-
-        builder.SetNegativeButton("キャンセル", (sender, e) =>
-        {
-            dialog?.Dismiss();
-        });
-
-        dialog = builder.Create();
-        dialog?.Show();
+        _currentConfigFileType = "azure";
+        _azureConfigCallback = onFileSelected;
+        _configFilePickerLauncher?.Launch("application/json");
     }
 
     private void LoadAzureSttConfigDirect(string subscriptionKey, string region, string language)
@@ -1579,51 +1481,9 @@ public class MainActivity : AppCompatActivity
 
     private void ShowFasterWhisperConfigFileSelectionDialog(Action<string> onFileSelected)
     {
-        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-        builder.SetTitle("Faster Whisper設定ファイルを選択");
-
-        // /sdcard/Download/ ディレクトリから .json ファイルを検索
-        var downloadsPath = Android.OS.Environment.GetExternalStoragePublicDirectory(Android.OS.Environment.DirectoryDownloads)?.AbsolutePath;
-
-        if (string.IsNullOrEmpty(downloadsPath) || !Directory.Exists(downloadsPath))
-        {
-            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-            errorBuilder.SetTitle("エラー");
-            errorBuilder.SetMessage("Downloadフォルダにアクセスできません");
-            errorBuilder.SetPositiveButton("OK", (s, e) => { });
-            errorBuilder.Show();
-            return;
-        }
-
-        var jsonFiles = Directory.GetFiles(downloadsPath, "*.json");
-
-        if (jsonFiles.Length == 0)
-        {
-            var errorBuilder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
-            errorBuilder.SetTitle("設定ファイルが見つかりません");
-            errorBuilder.SetMessage($"Downloadフォルダに .json ファイルが見つかりません。\n\nパス: {downloadsPath}");
-            errorBuilder.SetPositiveButton("OK", (s, e) => { });
-            errorBuilder.Show();
-            return;
-        }
-
-        var fileNames = jsonFiles.Select(f => Path.GetFileName(f)).ToArray();
-
-        AndroidX.AppCompat.App.AlertDialog? dialog = null;
-        builder.SetItems(fileNames, (sender, e) =>
-        {
-            var selectedFilePath = jsonFiles[e.Which];
-            dialog?.Dismiss();
-            onFileSelected?.Invoke(selectedFilePath);
-        });
-
-        builder.SetNegativeButton("キャンセル", (sender, e) =>
-        {
-            dialog?.Dismiss();
-        });
-
-        dialog = builder.Create();
-        dialog?.Show();
+        _currentConfigFileType = "fasterwhisper";
+        _fasterWhisperConfigCallback = onFileSelected;
+        _configFilePickerLauncher?.Launch("application/json");
     }
 
     private void LoadFasterWhisper(string serverUrl, string language = "ja")
@@ -2901,5 +2761,205 @@ public class MainActivity : AppCompatActivity
                 _currentAsrModelText.Text = $"ASR: {displayName}";
             }
         });
+    }
+
+    /// <summary>
+    /// URIをファイルパスに変換
+    /// </summary>
+    private string? GetFilePathFromUri(Android.Net.Uri uri)
+    {
+        Android.Util.Log.Info("MainActivity", $"URI変換開始: {uri}, Scheme: {uri.Scheme}");
+
+        try
+        {
+            // ファイルスキームの場合は直接使用（最初にチェック）
+            if (uri.Scheme == "file")
+            {
+                Android.Util.Log.Info("MainActivity", $"file:// URIを検出: {uri.Path}");
+                return uri.Path;
+            }
+
+            // content:// URI の場合、データベースから取得を試みる
+            if (uri.Scheme == "content")
+            {
+                Android.Util.Log.Info("MainActivity", $"content:// URIを検出、クエリを実行中...");
+                try
+                {
+                    var cursor = ContentResolver?.Query(uri, null, null, null, null);
+                    if (cursor != null)
+                    {
+                        Android.Util.Log.Info("MainActivity", $"カーソル取得成功、カラム数: {cursor.ColumnCount}");
+
+                        // MediaStore.MediaColumns.Data を試す
+                        try
+                        {
+#pragma warning disable CS0618, CA1422
+                            int column_index = cursor.GetColumnIndexOrThrow(Android.Provider.MediaStore.MediaColumns.Data);
+#pragma warning restore CS0618, CA1422
+                            cursor.MoveToFirst();
+                            string? filePath = cursor.GetString(column_index);
+                            cursor.Close();
+
+                            if (!string.IsNullOrEmpty(filePath))
+                            {
+                                Android.Util.Log.Info("MainActivity", $"ファイルパス取得成功: {filePath}");
+                                return filePath;
+                            }
+                            else
+                            {
+                                Android.Util.Log.Warn("MainActivity", "MediaStore.MediaColumns.Dataから空のパスが返されました");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Android.Util.Log.Warn("MainActivity", $"MediaStore.MediaColumns.Dataが見つかりません: {ex.Message}");
+                            cursor.Close();
+                        }
+                    }
+                    else
+                    {
+                        Android.Util.Log.Warn("MainActivity", "ContentResolver.Queryがnullを返しました");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Android.Util.Log.Error("MainActivity", $"ContentResolver.Queryエラー: {ex.Message}");
+                }
+            }
+
+            // キャッシュに一時保存して使用（フォールバック）
+            Android.Util.Log.Info("MainActivity", "キャッシュへのコピーを試行中...");
+            var cachedPath = CopyUriToCache(uri);
+            if (!string.IsNullOrEmpty(cachedPath))
+            {
+                Android.Util.Log.Info("MainActivity", $"キャッシュコピー成功: {cachedPath}");
+                return cachedPath;
+            }
+
+            Android.Util.Log.Error("MainActivity", "全てのURI変換方法が失敗しました");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error("MainActivity", $"URI変換エラー(予期しない): {ex.Message}, {ex.StackTrace}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// URIをキャッシュにコピー
+    /// </summary>
+    private string? CopyUriToCache(Android.Net.Uri uri)
+    {
+        Android.Util.Log.Info("MainActivity", $"URIをキャッシュにコピー中: {uri}");
+
+        try
+        {
+            using var inputStream = ContentResolver?.OpenInputStream(uri);
+            if (inputStream == null)
+            {
+                Android.Util.Log.Error("MainActivity", "OpenInputStreamがnullを返しました");
+                return null;
+            }
+
+            var cacheFile = new Java.IO.File(CacheDir, "config_temp.json");
+            Android.Util.Log.Info("MainActivity", $"キャッシュファイルパス: {cacheFile.AbsolutePath}");
+
+            using var outputStream = new System.IO.FileStream(cacheFile.AbsolutePath, System.IO.FileMode.Create);
+            inputStream.CopyTo(outputStream);
+
+            Android.Util.Log.Info("MainActivity", $"キャッシュへのコピー完了: {cacheFile.AbsolutePath}");
+            return cacheFile.AbsolutePath;
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error("MainActivity", $"キャッシュコピーエラー: {ex.Message}, {ex.StackTrace}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// ファイルピッカー結果を処理するコールバック
+    /// </summary>
+    private class ConfigFilePickerCallback : Java.Lang.Object, AndroidX.Activity.Result.IActivityResultCallback
+    {
+        private readonly MainActivity _activity;
+
+        public ConfigFilePickerCallback(MainActivity activity)
+        {
+            _activity = activity;
+        }
+
+        public void OnActivityResult(Java.Lang.Object? result)
+        {
+            if (result is not Android.Net.Uri uri)
+            {
+                Android.Util.Log.Warn("MainActivity", $"ファイルピッカーが無効な結果を返しました: {result?.GetType()}");
+                return;
+            }
+
+            Android.Util.Log.Info("MainActivity", $"ファイルピッカー結果: URI={uri}, Scheme={uri.Scheme}");
+
+            try
+            {
+                // ContentResolverを使用してファイルを読み込む
+                var filePath = _activity.GetFilePathFromUri(uri);
+                if (string.IsNullOrEmpty(filePath))
+                {
+                    Android.Util.Log.Error("MainActivity", $"ファイルパス取得失敗: URI={uri}");
+                    Toast.MakeText(_activity, "ファイルパスを取得できませんでした。ログを確認してください。", ToastLength.Long)?.Show();
+                    return;
+                }
+
+                Android.Util.Log.Info("MainActivity", $"設定ファイルを選択: {filePath}");
+
+                // ファイルタイプに応じて処理を分岐
+                switch (_activity._currentConfigFileType)
+                {
+                    case "llm":
+                        Android.Util.Log.Info("MainActivity", "LLM設定ファイルを処理中");
+                        if (_activity._llmConfigCallback != null)
+                        {
+                            _activity._llmConfigCallback.Invoke(filePath);
+                        }
+                        else
+                        {
+                            _activity.LoadLlmConfigFromFile(filePath);
+                        }
+                        break;
+
+                    case "azure":
+                        Android.Util.Log.Info("MainActivity", "Azure STT設定ファイルを処理中");
+                        if (_activity._azureConfigCallback != null)
+                        {
+                            _activity._azureConfigCallback.Invoke(filePath);
+                        }
+                        break;
+
+                    case "fasterwhisper":
+                        Android.Util.Log.Info("MainActivity", "Faster Whisper設定ファイルを処理中");
+                        if (_activity._fasterWhisperConfigCallback != null)
+                        {
+                            _activity._fasterWhisperConfigCallback.Invoke(filePath);
+                        }
+                        break;
+
+                    default:
+                        Toast.MakeText(_activity, $"不明なファイルタイプ: {_activity._currentConfigFileType}", ToastLength.Short)?.Show();
+                        Android.Util.Log.Error("MainActivity", $"不明なファイルタイプ: {_activity._currentConfigFileType}");
+                        break;
+                }
+
+                // コールバックをリセット
+                _activity._llmConfigCallback = null;
+                _activity._azureConfigCallback = null;
+                _activity._fasterWhisperConfigCallback = null;
+            }
+            catch (Exception ex)
+            {
+                Toast.MakeText(_activity, $"エラー: {ex.Message}", ToastLength.Short)?.Show();
+                Android.Util.Log.Error("MainActivity", $"ファイル読み込みエラー: {ex.Message}, {ex.StackTrace}");
+            }
+        }
     }
 }

@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Supported External APIs:**
 - **LLM Providers**: OpenAI, Azure OpenAI, Anthropic Claude, LM Studio (local)
 - **ASR Providers**: Azure Speech-to-Text, Faster Whisper (LAN server)
-- **Configuration**: JSON file import from `/sdcard/Download/` (see `config-samples/`)
+- **Configuration**: JSON file import from any location via file picker (see `config-samples/`)
 
 ## Development Environment
 

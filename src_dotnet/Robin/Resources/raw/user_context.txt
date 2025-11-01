@@ -1,0 +1,36 @@
+# ユーザーコンテキスト
+
+このファイルの内容は、会話の最初にシステムプロンプトの一部として送信されます。
+あなた自身やプロジェクトについて、AIに教えたい情報をここに記載してください。
+
+## 現在のプロジェクト
+
+**Robin** - オフライン音声認識機能を備えたAndroid音声チャットアプリケーション
+
+### 技術スタック
+- **プラットフォーム**: .NET 10.0 Android (net10.0-android)
+- **開発言語**: C# 12 (nullable reference types)
+- **最小Android API**: API 24 (Android 7.0)
+- **UIフレームワーク**: Native Android Views (DrawerLayout, RecyclerView)
+- **音声認識ライブラリ**: Sherpa-ONNX 1.12.15
+
+### 対応API
+- **LLMプロバイダー**: OpenAI、Azure OpenAI、Anthropic Claude、LM Studio (ローカル)
+- **音声認識プロバイダー**: Android標準、Sherpa-ONNX (オフライン)、Azure Speech-to-Text、Faster Whisper (LANサーバー)
+
+### 開発環境
+- **プラットフォーム**: Windows with MSYS2 bash
+- **シェル**: bash (MSYS2環境)
+- **パス形式**: Unix形式 (`/c/git/...`) とWindows形式の両対応
+- **ビルドツール**: dotnet CLI
+
+### プロジェクト構造
+- **メインコード**: `src_dotnet/Robin/`
+- **サービス層**: `Services/` (音声認識、LLM通信、設定管理)
+- **モデル**: `Models/` (メッセージ、設定、プロンプト)
+- **ネイティブライブラリ**: `libs/sherpa-onnx-1.12.15.aar`
+- **設定サンプル**: `config-samples/` (API設定JSONサンプル)
+
+---
+
+**カスタマイズ方法**: 上記の情報を編集するか、個人情報（名前、興味分野など）を追加してください。
