@@ -22,6 +22,7 @@ public class MainActivity : AppCompatActivity
     private NavigationView? _navigationView;
     private RecyclerView? _recyclerView;
     private FloatingActionButton? _micButton;
+    private FloatingActionButton? _sendButton;
     private TextView? _statusText;
     private TextView? _welcomeMessageText;
     private View? _swipeHint;
@@ -43,6 +44,7 @@ public class MainActivity : AppCompatActivity
     private SettingsService? _settingsService;
     private RecognizedInputBuffer? _inputBuffer;
     private SemanticValidationService? _semanticValidationService;
+    private CancellationTokenSource? _semanticValidationCancellation; // 意味解析キャンセル用
 
     // 音声認識エンジンの選択
     private readonly bool _useSherpaOnnx = true; // true: Sherpa-ONNX, false: Android標準
@@ -84,6 +86,7 @@ public class MainActivity : AppCompatActivity
         SetupRecyclerView();
         SetupDrawerNavigation();
         SetupMicButton();  // ← このタイミングで登録（Sherpaの初期化と並行実行）
+        SetupSendButton();
         SetupBackPressHandler();
         CheckPermissions();
 
@@ -141,6 +144,7 @@ public class MainActivity : AppCompatActivity
         _navigationView = FindViewById<NavigationView>(Resource.Id.nav_view);
         _recyclerView = FindViewById<RecyclerView>(Resource.Id.chat_recycler_view);
         _micButton = FindViewById<FloatingActionButton>(Resource.Id.mic_button);
+        _sendButton = FindViewById<FloatingActionButton>(Resource.Id.send_button);
         _statusText = FindViewById<TextView>(Resource.Id.status_text);
         _welcomeMessageText = FindViewById<TextView>(Resource.Id.welcome_message_text);
         _swipeHint = FindViewById(Resource.Id.swipe_hint);
@@ -2126,11 +2130,26 @@ public class MainActivity : AppCompatActivity
         // 処理状態を更新：読み取り中
         UpdateProcessingState(RobinProcessingState.ReadingAudio, recognizedText);
 
-        // バッファに認識結果を追加（ウォッチドッグで処理される）
+        // ユーザーメッセージをConversationServiceに追加し、UIに表示
+        RunOnUiThread(() =>
+        {
+            _conversationService?.AddUserMessage(recognizedText);
+        });
+
+        // バッファに認識結果を追加（ウォッチドッグで意味判定がトリガーされる）
         _inputBuffer?.AddRecognition(recognizedText);
 
         // 処理状態を更新：バッファ待機中
         UpdateProcessingState(RobinProcessingState.WaitingForBuffer);
+
+        // 画面表示の直後に送信ボタンを有効化（意味解析待たない）
+        RunOnUiThread(() =>
+        {
+            if (_sendButton != null)
+            {
+                _sendButton.Enabled = true;
+            }
+        });
     }
 
     private void OnRecognitionError(object? sender, string errorMessage)
@@ -2167,11 +2186,26 @@ public class MainActivity : AppCompatActivity
         // 処理状態を更新：読み取り中
         UpdateProcessingState(RobinProcessingState.ReadingAudio, recognizedText);
 
-        // バッファに認識結果を追加（ウォッチドッグで処理される）
+        // ユーザーメッセージをConversationServiceに追加し、UIに表示
+        RunOnUiThread(() =>
+        {
+            _conversationService?.AddUserMessage(recognizedText);
+        });
+
+        // バッファに認識結果を追加（ウォッチドッグで意味判定がトリガーされる）
         _inputBuffer?.AddRecognition(recognizedText);
 
         // 処理状態を更新：バッファ待機中
         UpdateProcessingState(RobinProcessingState.WaitingForBuffer);
+
+        // 画面表示の直後に送信ボタンを有効化（意味解析待たない）
+        RunOnUiThread(() =>
+        {
+            if (_sendButton != null)
+            {
+                _sendButton.Enabled = true;
+            }
+        });
     }
 
     private void OnSherpaError(object? sender, string errorMessage)
@@ -2231,12 +2265,8 @@ public class MainActivity : AppCompatActivity
         }
         else
         {
-            // 新規メッセージを追加（生の認識結果）
+            // メッセージは既に OnRecognitionResult で追加されているので、indexのみ取得
             textToValidate = bufferContent;
-            RunOnUiThread(() =>
-            {
-                _conversationService?.AddUserMessage(bufferContent);
-            });
             messageIndex = _conversationService?.GetLastUserMessageIndex() ?? -1;
         }
 
@@ -2246,21 +2276,24 @@ public class MainActivity : AppCompatActivity
         // 意味妥当性を判定（非同期）
         if (_semanticValidationService == null)
         {
-            // 検証サービスなしで直接処理
-            await ProcessValidInput(textToValidate);
+            // 検証サービスなしの場合、意味判定をスキップ
+            // 送信ボタンは既に OnRecognitionResult で有効化済み
+            UpdateProcessingState(RobinProcessingState.Idle);
             return;
         }
 
         try
         {
-            var validationResult = await _semanticValidationService.ValidateAsync(textToValidate);
+            // 前回のキャンセルトークンソースをクリーンアップして、新しいものを作成
+            _semanticValidationCancellation?.Cancel();  // 古いトークンを確実にキャンセル
+            _semanticValidationCancellation?.Dispose();
+            _semanticValidationCancellation = new CancellationTokenSource();
+
+            var validationResult = await _semanticValidationService.ValidateAsync(textToValidate, _semanticValidationCancellation.Token);
 
             if (validationResult.IsSemanticValid)
             {
-                // 処理状態を更新：テキスト確認中
-                UpdateProcessingState(RobinProcessingState.ProcessingText);
-
-                // 意味が通じた場合、メッセージを更新して LLM処理へ
+                // 意味が通じた場合、メッセージを更新して送信ボタンを有効化
                 if (messageIndex >= 0)
                 {
                     _conversationService?.UpdateMessageWithSemanticValidation(messageIndex, validationResult);
@@ -2272,7 +2305,9 @@ public class MainActivity : AppCompatActivity
                     });
                 }
 
-                await ProcessValidInput(validationResult.CorrectedText ?? textToValidate);
+                // 処理状態を更新：アイドル状態
+                UpdateProcessingState(RobinProcessingState.Idle);
+                // 送信ボタンは既に OnRecognitionResult で有効化済み
             }
             else
             {
@@ -2304,21 +2339,22 @@ public class MainActivity : AppCompatActivity
                 Android.Util.Log.Info("MainActivity", $"意味判定失敗: {validationResult.Feedback}（次の入力で結合して再判定します）");
             }
         }
+        catch (OperationCanceledException)
+        {
+            // 意味解析がキャンセルされた場合（ボタン押下時）
+            Android.Util.Log.Info("MainActivity", "意味判定がキャンセルされました");
+            UpdateProcessingState(RobinProcessingState.Idle);
+        }
         catch (Exception ex)
         {
             Android.Util.Log.Error("MainActivity", $"意味判定エラー: {ex.Message}");
-            UpdateProcessingState(RobinProcessingState.Error, "判定エラー");
+            UpdateProcessingState(RobinProcessingState.Idle);
 
             RunOnUiThread(() =>
             {
-                _statusText!.PostDelayed(() =>
-                {
-                    UpdateProcessingState(RobinProcessingState.Idle);
-                }, 2000);
+                ShowToast($"判定エラー: {ex.Message}");
+                // 送信ボタンは既に OnRecognitionResult で有効化済み
             });
-
-            // エラー時は元のテキストで処理
-            await ProcessValidInput(textToValidate);
         }
     }
 
@@ -2537,6 +2573,45 @@ public class MainActivity : AppCompatActivity
                 }
             }
         });
+    }
+
+    private void SetupSendButton()
+    {
+        if (_sendButton == null)
+            return;
+
+        _sendButton.Click += (sender, e) =>
+        {
+            // 最新のユーザーメッセージを取得
+            var messages = _conversationService?.GetMessages();
+            if (messages == null || messages.Count == 0)
+            {
+                ShowToast("メッセージがありません");
+                return;
+            }
+
+            var lastMessage = messages[messages.Count - 1];
+            if (lastMessage.Role != MessageRole.User)
+            {
+                ShowToast("ユーザーメッセージを選択してください");
+                return;
+            }
+
+            // 進行中の意味解析をキャンセル
+            _semanticValidationCancellation?.Cancel();
+
+            // 送信ボタンを即座に無効化
+            RunOnUiThread(() =>
+            {
+                _sendButton.Enabled = false;
+            });
+
+            // LLMに送信（バックグラウンド実行）
+            Task.Run(async () =>
+            {
+                await ProcessValidInput(lastMessage.Content);
+            });
+        };
     }
 
     private void SetupBackPressHandler()

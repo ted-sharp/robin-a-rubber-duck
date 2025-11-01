@@ -28,8 +28,9 @@ public class SemanticValidationService
     /// 音声認識テキストの意味妥当性を判定
     /// </summary>
     /// <param name="recognizedText">音声認識結果のテキスト</param>
+    /// <param name="cancellationToken">キャンセルトークン</param>
     /// <returns>意味妥当性判定結果</returns>
-    public async Task<SemanticValidationResult> ValidateAsync(string recognizedText)
+    public async Task<SemanticValidationResult> ValidateAsync(string recognizedText, CancellationToken cancellationToken = default)
     {
         if (_llmService == null)
         {
@@ -65,7 +66,10 @@ public class SemanticValidationService
                 }
             };
 
-            var response = await _llmService.SendMessageAsync(messages);
+            // キャンセルチェック
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var response = await _llmService.SendMessageAsync(messages, cancellationToken);
 
             // 元のシステムプロンプトに戻す
             _llmService.SetSystemPrompt(originalPrompt);

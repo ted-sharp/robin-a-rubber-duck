@@ -44,19 +44,6 @@
                 android:layout_weight="1"
                 android:padding="16dp"
                 android:clipToPadding="false" />
-
-            <!-- ステータステキスト -->
-            <TextView
-                android:id="@+id/status_text"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom|center_horizontal"
-                android:layout_marginBottom="80dp"
-                android:padding="12dp"
-                android:background="#80000000"
-                android:textColor="@android:color/white"
-                android:visibility="gone"
-                android:text="@string/listening" />
         </LinearLayout>
 
         <!-- 左上のコントロールエリア（縦並び、端ビタ付け） -->
@@ -211,7 +198,33 @@
 
     </androidx.drawerlayout.widget.DrawerLayout>
 
-    <!-- 音声入力ボタン (FloatingActionButton) - 固定位置 -->
+    <!-- ステータステキスト (フローティング表示) -->
+    <TextView
+        android:id="@+id/status_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="100dp"
+        android:padding="12dp"
+        android:background="#80000000"
+        android:textColor="@android:color/white"
+        android:visibility="gone"
+        android:text="@string/listening" />
+
+    <!-- 送信ボタン (FloatingActionButton) - セッター下部中央 -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/send_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_margin="16dp"
+        android:contentDescription="メッセージを送信"
+        android:src="@android:drawable/ic_menu_send"
+        app:tint="@android:color/white"
+        app:backgroundTint="@color/send_button_color"
+        android:enabled="false" />
+
+    <!-- 音声入力ボタン (FloatingActionButton) - 右下 -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/mic_button"
         android:layout_width="wrap_content"

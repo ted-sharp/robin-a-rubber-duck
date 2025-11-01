@@ -89,7 +89,7 @@ public class OpenAIService
     }
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "JSON models are preserved")]
-    public async Task<string> SendMessageAsync(List<Message> conversationHistory)
+    public async Task<string> SendMessageAsync(List<Message> conversationHistory, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -98,17 +98,17 @@ public class OpenAIService
             var request = BuildRequest(conversationHistory);
             Log.Debug("OpenAIService", $"リクエストボディ作成完了");
 
-            var response = await _httpClient.PostAsync("chat/completions", request);
+            var response = await _httpClient.PostAsync("chat/completions", request, cancellationToken);
             Log.Info("OpenAIService", $"レスポンス受信 - Status: {response.StatusCode}");
 
             if (!response.IsSuccessStatusCode)
             {
-                var errorContent = await response.Content.ReadAsStringAsync();
+                var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 Log.Error("OpenAIService", $"APIエラー ({response.StatusCode}): {errorContent}");
                 throw new HttpRequestException($"API Error ({response.StatusCode}): {errorContent}");
             }
 
-            var responseContent = await response.Content.ReadAsStringAsync();
+            var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
             Log.Debug("OpenAIService", $"レスポンス内容: {responseContent.Substring(0, Math.Min(200, responseContent.Length))}...");
 
             var openAIResponse = JsonSerializer.Deserialize<OpenAIResponse>(responseContent);
