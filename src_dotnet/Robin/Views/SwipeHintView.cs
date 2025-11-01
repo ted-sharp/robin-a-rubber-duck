@@ -85,7 +85,11 @@ public class SwipeHintView : View
 
     public override bool OnTouchEvent(MotionEvent? e)
     {
-        // タッチイベントは処理せず、親に委譲
-        return false;
+        // タッチイベントを処理してClickイベントを発火させる
+        if (e?.Action == MotionEventActions.Up)
+        {
+            PerformClick();
+        }
+        return true;
     }
 }

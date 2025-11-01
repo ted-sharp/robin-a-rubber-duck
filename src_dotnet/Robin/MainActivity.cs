@@ -175,6 +175,12 @@ public class MainActivity : AppCompatActivity
         {
             _llmErrorContainer.Click += OnLlmErrorIconClick;
         }
+
+        // スワイプヒント（ドロワーハンドル）のタップイベント設定
+        if (_swipeHint != null)
+        {
+            _swipeHint.Click += OnSwipeHintClick;
+        }
     }
 
     private void InitializeServices()
@@ -2830,6 +2836,11 @@ public class MainActivity : AppCompatActivity
     private void OnAsrToggleButtonClick(object? sender, EventArgs e)
     {
         ShowModelSelectionDialog();
+    }
+
+    private void OnSwipeHintClick(object? sender, EventArgs e)
+    {
+        _drawerLayout?.OpenDrawer((int)GravityFlags.Start);
     }
 
     /// <summary>
