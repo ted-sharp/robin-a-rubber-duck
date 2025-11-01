@@ -172,7 +172,7 @@ JSON形式で必ず以下の構造で応答してください：
 
             if (_loadedConfig != null)
             {
-                Android.Util.Log.Info("SystemPrompts", $"Successfully loaded system prompts from Assets (ConversationPrompt: {_loadedConfig.ConversationPrompt?.Length ?? 0} chars, SemanticValidationPrompt: {_loadedConfig.SemanticValidationPrompt?.Length ?? 0} chars)");
+                Android.Util.Log.Info("SystemPrompts", $"Successfully loaded system prompts from Assets (DefaultConversationPrompt: {_loadedConfig.DefaultConversationPrompt?.Length ?? 0} chars, DefaultSemanticValidationPrompt: {_loadedConfig.DefaultSemanticValidationPrompt?.Length ?? 0} chars)");
             }
             else
             {
@@ -190,13 +190,13 @@ JSON形式で必ず以下の構造で応答してください：
     /// 通常の会話用システムプロンプトを取得
     /// </summary>
     public static string ConversationSystemPrompt =>
-        _loadedConfig?.ConversationPrompt ?? DefaultConversationSystemPrompt;
+        _loadedConfig?.DefaultConversationPrompt ?? DefaultConversationSystemPrompt;
 
     /// <summary>
     /// 意味検証と音声認識補正用システムプロンプトを取得
     /// </summary>
     public static string SemanticValidationSystemPrompt =>
-        _loadedConfig?.SemanticValidationPrompt ?? DefaultSemanticValidationSystemPrompt;
+        _loadedConfig?.DefaultSemanticValidationPrompt ?? DefaultSemanticValidationSystemPrompt;
 
     /// <summary>
     /// システムプロンプトのタイプを識別

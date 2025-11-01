@@ -1,17 +1,33 @@
 namespace Robin.Models;
 
 /// <summary>
-/// システムプロンプト設定ファイルのモデル
+/// システムプロンプト設定ファイルのモデル（system_prompts.json）
 /// </summary>
 public class SystemPromptsConfig
 {
     /// <summary>
-    /// 通常の会話用プロンプト
+    /// デフォルトの通常会話用プロンプト
     /// </summary>
-    public string? ConversationPrompt { get; set; }
+    public string? DefaultConversationPrompt { get; set; }
 
     /// <summary>
-    /// 意味検証と音声認識補正用プロンプト
+    /// デフォルトの意味検証と音声認識補正用プロンプト
     /// </summary>
-    public string? SemanticValidationPrompt { get; set; }
+    public string? DefaultSemanticValidationPrompt { get; set; }
+}
+
+/// <summary>
+/// ユーザーコンテキストテンプレート
+/// </summary>
+public class UserContextTemplate
+{
+    /// <summary>
+    /// テンプレートの名前
+    /// </summary>
+    public string? Name { get; set; }
+
+    /// <summary>
+    /// テンプレートのコンテキスト内容
+    /// </summary>
+    public string? Context { get; set; }
 }

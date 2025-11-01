@@ -1,0 +1,21 @@
+{
+    "DefaultContext": "プログラマー歴1年。主要言語はC#で、.NETとASP.NET Core、Android開発に携わっています。\n\n## 開発環境\n- OS: Windows 11\n- IDE: Visual Studio 2022\n- 補助ツール: ReSharper\n- 主要フレームワーク: .NET 10.0, ASP.NET Core, Xamarin.Android\n\n## 技術スキル\n- C# (高): LINQ、async/await、nullable reference types、SOLID原則\n- .NET (高): Entity Framework, Dependency Injection, NuGet\n- Web開発 (中): HTML/CSS, JavaScript (基礎)\n- データベース (中): SQL Server, SQLite, EF migrations\n- バージョン管理 (中): Git\n- UI開発 (初級): Android Views, RecyclerView, DrawerLayout\n\n## 関心分野\n1. Webアプリケーション開発: REST API設計、バックエンド最適化\n2. AI・機械学習: NLP、音声認識、LLM API統合\n3. モダンな開発技法: 非同期プログラミング、マイクロサービス\n\n## 現在の学習課題\n- Android ネイティブUI実装の深い理解\n- 音声認識・音声処理技術\n- LLM API との統合パターン\n- クロスプラットフォーム開発\n\n## コミュニケーション スタイル\n- 詳細な技術説明を好む\n- コード例があると理解しやすい\n- エラーメッセージや実装の「なぜ」に関心あり\n- 実践的なベストプラクティスを求める",
+    "Samples": [
+        {
+            "name": "C# Webバックエンド開発者",
+            "context": "プログラマー歴3年。主要言語はC#で、ASP.NET Coreを使ったWebアプリケーション開発を専門としています。\n\n## 開発環境\n- OS: Windows 11\n- IDE: Visual Studio 2022\n- 補助ツール: ReSharper\n\n## 技術スキル\n- C# (高): LINQ、async/await、Dependency Injection\n- ASP.NET Core (高): REST API、Entity Framework Core、認証・認可\n- データベース (高): SQL Server、マイグレーション設計\n- クラウド (中): Azure App Service、Azure SQL Database\n- テスト (中): xUnit、モック、統合テスト\n\n## 関心分野\n- マイクロサービスアーキテクチャ\n- クラウドネイティブアプリケーション\n- API設計とセキュリティ\n- パフォーマンス最適化"
+        },
+        {
+            "name": "フルスタックWebエンジニア",
+            "context": "プログラマー歴5年。フロントエンドとバックエンド両方を開発できるフルスタック型エンジニアです。\n\n## 開発環境\n- OS: Windows 11 / macOS\n- IDE: Visual Studio Code / Visual Studio 2022\n- フロントエンドツール: Node.js、npm、webpack\n\n## 技術スキル\n- フロントエンド: React、Vue.js、TypeScript、CSS/SASS\n- バックエンド: C#、ASP.NET Core、Node.js\n- データベース: SQL Server、MongoDB、Redis\n- DevOps: Docker、GitHub Actions、CI/CD\n\n## 関心分野\n- ユーザーエクスペリエンス設計\n- パフォーマンス最適化\n- インフラストラクチャ自動化"
+        },
+        {
+            "name": "AI/MLエンジニア",
+            "context": "プログラマー歴4年。AI・機械学習分野に特化したエンジニアです。自然言語処理と音声処理に興味があります。\n\n## 開発環境\n- OS: Windows 11 / Linux\n- IDE: Visual Studio Code、Jupyter Notebook\n- フレームワーク: Python、C# (推論用)\n\n## 技術スキル\n- Python (高): NumPy、Pandas、scikit-learn、PyTorch\n- 自然言語処理: Hugging Face Transformers、OpenAI API\n- 音声処理: Whisper、Faster Whisper、Sherpa-ONNX\n- 推論エンジン: ONNX Runtime、TensorFlow Lite\n\n## 関心分野\n- 大規模言語モデル（LLM）の応用\n- 音声認識・合成技術\n- エッジデバイスでの推論最適化"
+        },
+        {
+            "name": "初心者プログラマー",
+            "context": "プログラマー歴6ヶ月。C#を学習中で、基本的な言語概念を理解している段階です。\n\n## 開発環境\n- OS: Windows 11\n- IDE: Visual Studio Community\n\n## 技術スキル\n- C# (初級): 変数、制御フロー、関数、クラスの基本\n- .NET (初級): コンソールアプリ、簡単なウィンドウズフォーム\n\n## 学習課題\n- 非同期プログラミングの理解\n- オブジェクト指向設計パターン\n- デバッグスキルの向上\n\n## サポート希望\n- 分かりやすい説明を求める\n- コード例があるとよい\n- 初歩的な質問を積極的に歓迎"
+        }
+    ]
+}

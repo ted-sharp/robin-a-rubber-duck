@@ -39,6 +39,7 @@
   <!-- System Prompts JSON Configuration -->
   <ItemGroup>
     <AndroidAsset Include="Resources\raw\system_prompts.json" />
+    <AndroidAsset Include="Resources\raw\user_context.json" />
   </ItemGroup>
 
   <!-- Sherpa-ONNX Model Files (Conditional Assets) -->

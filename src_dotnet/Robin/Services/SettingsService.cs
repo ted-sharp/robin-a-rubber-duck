@@ -33,6 +33,10 @@ public class SettingsService
     private const string SemanticValidationPromptKey = "semantic_validation_prompt";
     private const string UseCustomPromptsKey = "use_custom_prompts";
 
+    // ユーザーコンテキスト設定キー
+    private const string UserContextKey = "user_context";
+    private const string UseUserContextKey = "use_user_context";
+
     // SharedPreferences サイズ制限（推奨値：1個の設定キーあたり最大1MB）
     private const long MaxPromptSizeBytes = 1024 * 1024; // 1MB
 
@@ -479,6 +483,66 @@ public class SettingsService
             editor.Remove(UseCustomPromptsKey);
             editor.Commit();
             Log.Info("SettingsService", "システムプロンプト設定をクリア");
+        }
+    }
+
+    /// <summary>
+    /// ユーザーコンテキストを保存
+    /// </summary>
+    public void SaveUserContext(string context)
+    {
+        var editor = _preferences.Edit();
+        if (editor != null)
+        {
+            var contextText = context ?? "";
+            editor.PutString(UserContextKey, contextText);
+            editor.Commit();
+            Log.Info("SettingsService", $"ユーザーコンテキストを保存: {contextText.Length} 文字");
+        }
+    }
+
+    /// <summary>
+    /// ユーザーコンテキストを読み込む
+    /// </summary>
+    public string LoadUserContext()
+    {
+        return _preferences.GetString(UserContextKey, "") ?? "";
+    }
+
+    /// <summary>
+    /// ユーザーコンテキスト使用フラグを保存
+    /// </summary>
+    public void SaveUseUserContext(bool useContext)
+    {
+        var editor = _preferences.Edit();
+        if (editor != null)
+        {
+            editor.PutBoolean(UseUserContextKey, useContext);
+            editor.Commit();
+            Log.Info("SettingsService", $"ユーザーコンテキスト使用: {useContext}");
+        }
+    }
+
+    /// <summary>
+    /// ユーザーコンテキスト使用フラグを読み込む
+    /// </summary>
+    public bool LoadUseUserContext()
+    {
+        return _preferences.GetBoolean(UseUserContextKey, false);
+    }
+
+    /// <summary>
+    /// ユーザーコンテキスト設定をクリア
+    /// </summary>
+    public void ClearUserContext()
+    {
+        var editor = _preferences.Edit();
+        if (editor != null)
+        {
+            editor.Remove(UserContextKey);
+            editor.Remove(UseUserContextKey);
+            editor.Commit();
+            Log.Info("SettingsService", "ユーザーコンテキスト設定をクリア");
         }
     }
 

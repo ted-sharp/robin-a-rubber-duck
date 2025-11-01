@@ -444,25 +444,35 @@ public class MainActivity : AppCompatActivity
         try
         {
             var promptSettings = _settingsService.LoadSystemPromptSettings();
+            var useUserContext = _settingsService.LoadUseUserContext();
+            var userContext = _settingsService.LoadUserContext();
+
+            string finalPrompt;
 
             if (promptSettings.UseCustomPrompts)
             {
                 // カスタムプロンプトを使用
-                if (!string.IsNullOrEmpty(promptSettings.ConversationPrompt))
-                {
-                    _openAIService.SetSystemPrompt(promptSettings.ConversationPrompt);
-                    Android.Util.Log.Info("MainActivity", "カスタム Conversation プロンプトを適用");
-                }
-
-                // SemanticValidationService もカスタムプロンプトを認識するように設定
-                // （SemanticValidationService 内部で自動的に処理される）
+                finalPrompt = promptSettings.ConversationPrompt ?? SystemPrompts.ConversationSystemPrompt;
+                Android.Util.Log.Info("MainActivity", "カスタム Conversation プロンプトを適用");
             }
             else
             {
                 // デフォルトプロンプトを使用
-                _openAIService.SetSystemPrompt(SystemPrompts.PromptType.Conversation);
+                finalPrompt = SystemPrompts.ConversationSystemPrompt;
                 Android.Util.Log.Info("MainActivity", "デフォルト Conversation プロンプトを適用");
             }
+
+            // ユーザーコンテキストを追加
+            if (useUserContext && !string.IsNullOrWhiteSpace(userContext))
+            {
+                finalPrompt += $"\n\n## ユーザーについて\n以下のユーザー情報を考慮して、より適切な支援を提供してください：\n{userContext}";
+                Android.Util.Log.Info("MainActivity", $"ユーザーコンテキストを追加: {userContext.Length} 文字");
+            }
+
+            _openAIService.SetSystemPrompt(finalPrompt);
+
+            // SemanticValidationService もカスタムプロンプトを認識するように設定
+            // （SemanticValidationService 内部で自動的に処理される）
         }
         catch (Exception ex)
         {
