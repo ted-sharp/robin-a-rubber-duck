@@ -109,12 +109,8 @@ public class SemanticValidationService
                 Log.Warn("SemanticValidationService", $"プロンプト復帰エラー: {restoreEx.Message}");
             }
 
-            return new SemanticValidationResult
-            {
-                IsSemanticValid = true,
-                CorrectedText = recognizedText,
-                Feedback = $"判定エラー: {ex.Message}"
-            };
+            // 通常のLLMエラーと同様にエラーを上位に伝播
+            throw;
         }
     }
 

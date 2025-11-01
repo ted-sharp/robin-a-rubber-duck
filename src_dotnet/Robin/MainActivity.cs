@@ -2114,6 +2114,13 @@ public class MainActivity : AppCompatActivity
 
     private void OnRecognitionStarted(object? sender, EventArgs e)
     {
+        // 意味理解中の場合はキャンセル（新しい音声入力が始まったため）
+        if (_semanticValidationCancellation != null && !_semanticValidationCancellation.IsCancellationRequested)
+        {
+            Android.Util.Log.Info("MainActivity", "意味理解をキャンセル（新しい音声認識が開始）");
+            _semanticValidationCancellation?.Cancel();
+        }
+
         RunOnUiThread(() =>
         {
             _statusText?.SetText(Resource.String.listening);
@@ -2276,8 +2283,13 @@ public class MainActivity : AppCompatActivity
             messageIndex = _conversationService?.GetLastUserMessageIndex() ?? -1;
         }
 
-        // バッファをフラッシュ
-        _inputBuffer?.FlushBuffer();
+        // 音声認識のみモード（LLMエラー時）の場合は、意味理解をスキップ
+        if (_llmOnlyTranscriptionMode)
+        {
+            Android.Util.Log.Info("MainActivity", "音声認識のみモード: 意味理解をスキップ");
+            UpdateProcessingState(RobinProcessingState.Idle);
+            return;
+        }
 
         // 意味妥当性を判定（非同期）
         if (_semanticValidationService == null)
@@ -2299,6 +2311,9 @@ public class MainActivity : AppCompatActivity
 
             if (validationResult.IsSemanticValid)
             {
+                // 意味が通じた場合、バッファをフラッシュ（成功したので次回結合不要）
+                _inputBuffer?.FlushBuffer();
+
                 // 意味が通じた場合、メッセージを更新して送信ボタンを有効化
                 if (messageIndex >= 0)
                 {
@@ -2347,20 +2362,35 @@ public class MainActivity : AppCompatActivity
         }
         catch (OperationCanceledException)
         {
-            // 意味解析がキャンセルされた場合（ボタン押下時）
-            Android.Util.Log.Info("MainActivity", "意味判定がキャンセルされました");
+            // 意味解析がキャンセルされた場合（新しい音声認識が開始）
+            Android.Util.Log.Info("MainActivity", "意味判定がキャンセルされました（次回入力と結合します）");
+
+            // キャンセルされたメッセージを「意味判定失敗」としてマーク（次回結合するため）
+            if (messageIndex >= 0)
+            {
+                var canceledResult = new SemanticValidationResult
+                {
+                    IsSemanticValid = false,
+                    CorrectedText = textToValidate,
+                    Feedback = "キャンセル（次回結合）"
+                };
+                _conversationService?.UpdateMessageWithSemanticValidation(messageIndex, canceledResult);
+
+                RunOnUiThread(() =>
+                {
+                    _messageAdapter?.UpdateMessage(messageIndex, _conversationService!.GetMessages()[messageIndex]);
+                });
+            }
+
             UpdateProcessingState(RobinProcessingState.Idle);
         }
         catch (Exception ex)
         {
             Android.Util.Log.Error("MainActivity", $"意味判定エラー: {ex.Message}");
-            UpdateProcessingState(RobinProcessingState.Idle);
+            UpdateProcessingState(RobinProcessingState.Error, ex.Message);
 
-            RunOnUiThread(() =>
-            {
-                ShowToast($"判定エラー: {ex.Message}");
-                // 送信ボタンは既に OnRecognitionResult で有効化済み
-            });
+            // 通常のLLMエラーと同様にエラー表示（音声認識のみモードに切り替え）
+            ShowLlmError(ex.Message);
         }
     }
 
