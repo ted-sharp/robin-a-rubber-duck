@@ -10,24 +10,56 @@
     android:paddingStart="12dp"
     android:paddingEnd="12dp">
 
-    <!-- メッセージ吹き出し -->
+    <!-- メッセージコンテナ（メッセージバブル + 削除ボタン） -->
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:id="@+id/message_container"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginEnd="48dp"
-        android:maxWidth="280dp"
-        android:orientation="vertical"
-        android:background="@drawable/chat_bubble_ai"
-        android:elevation="2dp">
+        android:orientation="horizontal"
+        android:gravity="start"
+        android:paddingEnd="48dp">
 
-        <TextView
-            android:id="@+id/ai_message_text"
+        <!-- メッセージとボタンを一つのグループにする -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="15sp"
-            android:textColor="#424242"
-            android:text="AI response"
-            android:lineSpacingExtra="2sp" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- メッセージ吹き出し -->
+            <LinearLayout
+                android:id="@+id/message_bubble"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:maxWidth="280dp"
+                android:orientation="vertical"
+                android:background="@drawable/chat_bubble_ai"
+                android:elevation="2dp">
+
+                <TextView
+                    android:id="@+id/ai_message_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="15sp"
+                    android:textColor="#424242"
+                    android:text="AI response"
+                    android:lineSpacingExtra="2sp" />
+
+            </LinearLayout>
+
+            <!-- 削除ボタン（初期非表示） -->
+            <ImageButton
+                android:id="@+id/delete_button"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="4dp"
+                android:contentDescription="Delete message"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:scaleType="centerInside"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:visibility="gone" />
+
+        </LinearLayout>
 
     </LinearLayout>
 

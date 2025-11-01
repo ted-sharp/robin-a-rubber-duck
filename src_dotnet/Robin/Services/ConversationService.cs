@@ -103,6 +103,19 @@ public class ConversationService
         return -1;
     }
 
+    /// <summary>
+    /// 指定インデックスのメッセージを削除
+    /// </summary>
+    public void DeleteMessage(int index)
+    {
+        if (index >= 0 && index < _messages.Count)
+        {
+            _messages.RemoveAt(index);
+            SaveMessagesToStorage();
+            Log.Info("ConversationService", $"メッセージを削除しました (インデックス: {index})");
+        }
+    }
+
     public void ClearHistory()
     {
         _messages.Clear();
@@ -159,6 +172,46 @@ public class ConversationService
 
         // 失敗メッセージがない場合は新規追加して新しいテキストを返す
         return newText;
+    }
+
+    /// <summary>
+    /// 結合に使われた古いメッセージを削除して、統合されたメッセージを1つ作成
+    /// </summary>
+    /// <param name="mergedMessageIndex">統合されたメッセージのインデックス</param>
+    /// <returns>削除されたメッセージの数</returns>
+    public int ConsolidateMergedMessages(int mergedMessageIndex)
+    {
+        if (mergedMessageIndex < 0 || mergedMessageIndex >= _messages.Count)
+        {
+            return 0;
+        }
+
+        // 統合されたメッセージより後のユーザーメッセージを収集
+        var messagesToDelete = new List<int>();
+        for (int i = mergedMessageIndex + 1; i < _messages.Count; i++)
+        {
+            if (_messages[i].IsUser)
+            {
+                messagesToDelete.Add(i);
+            }
+        }
+
+        // 削除するメッセージがある場合
+        if (messagesToDelete.Count > 0)
+        {
+            // 後ろから削除（インデックスがずれないように）
+            for (int i = messagesToDelete.Count - 1; i >= 0; i--)
+            {
+                _messages.RemoveAt(messagesToDelete[i]);
+            }
+
+            SaveMessagesToStorage();
+            Log.Info("ConversationService", $"結合メッセージを統合: {messagesToDelete.Count}個のメッセージを削除");
+
+            return messagesToDelete.Count;
+        }
+
+        return 0;
     }
 
     /// <summary>

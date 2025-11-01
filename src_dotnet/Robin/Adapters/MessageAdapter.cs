@@ -8,6 +8,7 @@ namespace Robin.Adapters;
 public sealed class MessageAdapter : RecyclerView.Adapter
 {
     private readonly List<Message> _messages;
+    private readonly HashSet<int> _selectedMessagesForDeletion = new();
     private const int ViewTypeUser = 1;
     private const int ViewTypeAssistant = 2;
 
@@ -34,24 +35,26 @@ public sealed class MessageAdapter : RecyclerView.Adapter
             var view = inflater.Inflate(Resource.Layout.chat_item_user, parent, false);
             if (view == null)
                 throw new InvalidOperationException("Failed to inflate user message view");
-            return new UserMessageViewHolder(view);
+            return new UserMessageViewHolder(view, this);
         }
         else
         {
             var view = inflater.Inflate(Resource.Layout.chat_item_ai, parent, false);
             if (view == null)
                 throw new InvalidOperationException("Failed to inflate AI message view");
-            return new AIMessageViewHolder(view);
+            return new AIMessageViewHolder(view, this);
         }
     }
 
     public override void OnBindViewHolder(RecyclerView.ViewHolder holder, int position)
     {
         var message = _messages[position];
+        var isDeleteButtonVisible = _selectedMessagesForDeletion.Contains(position);
 
         if (holder is UserMessageViewHolder userHolder)
         {
             userHolder.Bind(message);
+            userHolder.SetupDeleteButton(position, isDeleteButtonVisible, this);
 
             // 前のメッセージがユーザーメッセージの場合、上部の padding を削減
             if (position > 0 && _messages[position - 1].IsUser)
@@ -66,6 +69,7 @@ public sealed class MessageAdapter : RecyclerView.Adapter
         else if (holder is AIMessageViewHolder aiHolder)
         {
             aiHolder.Bind(message);
+            aiHolder.SetupDeleteButton(position, isDeleteButtonVisible, this);
 
             // 前のメッセージが AI メッセージの場合、上部の padding を削減
             if (position > 0 && _messages[position - 1].IsAssistant)
@@ -101,18 +105,62 @@ public sealed class MessageAdapter : RecyclerView.Adapter
     {
         var count = _messages.Count;
         _messages.Clear();
+        _selectedMessagesForDeletion.Clear();
         NotifyItemRangeRemoved(0, count);
+    }
+
+    /// <summary>
+    /// 指定インデックスのメッセージの削除ボタン表示状態をトグル
+    /// </summary>
+    public void ToggleDeleteButton(int position)
+    {
+        if (_selectedMessagesForDeletion.Contains(position))
+        {
+            _selectedMessagesForDeletion.Remove(position);
+        }
+        else
+        {
+            _selectedMessagesForDeletion.Add(position);
+        }
+        NotifyItemChanged(position);
+    }
+
+    /// <summary>
+    /// 指定インデックスのメッセージを削除
+    /// </summary>
+    public void DeleteMessage(int position)
+    {
+        if (position >= 0 && position < _messages.Count)
+        {
+            _messages.RemoveAt(position);
+            _selectedMessagesForDeletion.Remove(position);
+            NotifyItemRemoved(position);
+
+            // インデックスが変わったので、position以降の選択状態を更新
+            var itemsToUpdate = _selectedMessagesForDeletion.Where(idx => idx > position).ToList();
+            foreach (var idx in itemsToUpdate)
+            {
+                _selectedMessagesForDeletion.Remove(idx);
+                _selectedMessagesForDeletion.Add(idx - 1);
+            }
+        }
     }
 
     private sealed class UserMessageViewHolder : RecyclerView.ViewHolder
     {
         private readonly TextView _messageText;
         private readonly LinearLayout _rootLayout;
+        private readonly LinearLayout _messageBubble;
+        private readonly ImageButton _deleteButton;
+        private EventHandler? _messageBubbleClickHandler;
+        private EventHandler? _deleteButtonClickHandler;
 
-        public UserMessageViewHolder(View itemView) : base(itemView)
+        public UserMessageViewHolder(View itemView, MessageAdapter adapter) : base(itemView)
         {
             _rootLayout = (LinearLayout)itemView;
             _messageText = itemView.FindViewById<TextView>(Resource.Id.user_message_text)!;
+            _messageBubble = itemView.FindViewById<LinearLayout>(Resource.Id.message_bubble)!;
+            _deleteButton = itemView.FindViewById<ImageButton>(Resource.Id.delete_button)!;
         }
 
         public void Bind(Message message)
@@ -152,6 +200,36 @@ public sealed class MessageAdapter : RecyclerView.Adapter
             }
         }
 
+        public void SetupDeleteButton(int position, bool isVisible, MessageAdapter adapter)
+        {
+            // 削除ボタンの表示状態を設定
+            _deleteButton.Visibility = isVisible ? ViewStates.Visible : ViewStates.Gone;
+
+            // 前回のハンドラを削除
+            if (_messageBubbleClickHandler != null)
+            {
+                _messageBubble.Click -= _messageBubbleClickHandler;
+            }
+            if (_deleteButtonClickHandler != null)
+            {
+                _deleteButton.Click -= _deleteButtonClickHandler;
+            }
+
+            // メッセージバブルのクリックハンドラを設定
+            _messageBubbleClickHandler = (sender, e) =>
+            {
+                adapter.ToggleDeleteButton(position);
+            };
+            _messageBubble.Click += _messageBubbleClickHandler;
+
+            // 削除ボタンのクリックハンドラを設定
+            _deleteButtonClickHandler = (sender, e) =>
+            {
+                adapter.DeleteMessage(position);
+            };
+            _deleteButton.Click += _deleteButtonClickHandler;
+        }
+
         public void SetCompactSpacing(bool isCompact)
         {
             int topPadding = isCompact ? 0 : (int)(2 * _rootLayout.Resources!.DisplayMetrics!.Density);
@@ -168,16 +246,52 @@ public sealed class MessageAdapter : RecyclerView.Adapter
     {
         private readonly TextView _messageText;
         private readonly LinearLayout _rootLayout;
+        private readonly LinearLayout _messageBubble;
+        private readonly ImageButton _deleteButton;
+        private EventHandler? _messageBubbleClickHandler;
+        private EventHandler? _deleteButtonClickHandler;
 
-        public AIMessageViewHolder(View itemView) : base(itemView)
+        public AIMessageViewHolder(View itemView, MessageAdapter adapter) : base(itemView)
         {
             _rootLayout = (LinearLayout)itemView;
             _messageText = itemView.FindViewById<TextView>(Resource.Id.ai_message_text)!;
+            _messageBubble = itemView.FindViewById<LinearLayout>(Resource.Id.message_bubble)!;
+            _deleteButton = itemView.FindViewById<ImageButton>(Resource.Id.delete_button)!;
         }
 
         public void Bind(Message message)
         {
             _messageText.Text = message.GetDisplayContent();
+        }
+
+        public void SetupDeleteButton(int position, bool isVisible, MessageAdapter adapter)
+        {
+            // 削除ボタンの表示状態を設定
+            _deleteButton.Visibility = isVisible ? ViewStates.Visible : ViewStates.Gone;
+
+            // 前回のハンドラを削除
+            if (_messageBubbleClickHandler != null)
+            {
+                _messageBubble.Click -= _messageBubbleClickHandler;
+            }
+            if (_deleteButtonClickHandler != null)
+            {
+                _deleteButton.Click -= _deleteButtonClickHandler;
+            }
+
+            // メッセージバブルのクリックハンドラを設定
+            _messageBubbleClickHandler = (sender, e) =>
+            {
+                adapter.ToggleDeleteButton(position);
+            };
+            _messageBubble.Click += _messageBubbleClickHandler;
+
+            // 削除ボタンのクリックハンドラを設定
+            _deleteButtonClickHandler = (sender, e) =>
+            {
+                adapter.DeleteMessage(position);
+            };
+            _deleteButton.Click += _deleteButtonClickHandler;
         }
 
         public void SetCompactSpacing(bool isCompact)

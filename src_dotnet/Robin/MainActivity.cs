@@ -2186,13 +2186,30 @@ public class MainActivity : AppCompatActivity
                 // 意味が通じた場合、メッセージを更新して送信ボタンを有効化
                 if (messageIndex >= 0)
                 {
+                    // 結合されたメッセージを統合（古いメッセージを削除） - UpdateMessageWithSemanticValidationの前に実行
+                    var deletedCount = _conversationService?.ConsolidateMergedMessages(messageIndex) ?? 0;
+
+                    // メッセージに意味解析結果を反映
                     _conversationService?.UpdateMessageWithSemanticValidation(messageIndex, validationResult);
 
-                    // UIを更新（色を変更）
-                    RunOnUiThread(() =>
+                    if (deletedCount > 0)
                     {
-                        _messageAdapter?.UpdateMessage(messageIndex, _conversationService!.GetMessages()[messageIndex]);
-                    });
+                        Android.Util.Log.Info("MainActivity", $"メッセージ統合: {deletedCount}個のメッセージを削除");
+
+                        // UIを全体的に更新（削除されたメッセージを反映）
+                        RunOnUiThread(() =>
+                        {
+                            _messageAdapter?.NotifyDataSetChanged();
+                        });
+                    }
+                    else
+                    {
+                        // 統合が不要な場合は、メッセージのみ更新（色を変更）
+                        RunOnUiThread(() =>
+                        {
+                            _messageAdapter?.UpdateMessage(messageIndex, _conversationService!.GetMessages()[messageIndex]);
+                        });
+                    }
                 }
 
                 // 処理状態を更新：アイドル状態
