@@ -107,11 +107,11 @@ public class SettingsService
     /// </summary>
     public LLMProviderSettings LoadLLMProviderSettings()
     {
-        var provider = _preferences.GetString(LLMProviderKey, "lm-studio") ?? "lm-studio";
-        var endpoint = _preferences.GetString(LLMEndpointKey, "http://192.168.0.7:1234") ?? "http://192.168.0.7:1234";
+        var provider = _preferences.GetString(LLMProviderKey, "none") ?? "none";
+        var endpoint = _preferences.GetString(LLMEndpointKey, "") ?? "";
         var apiKey = _preferences.GetString(LLMApiKeyKey, "") ?? "";
-        var modelName = _preferences.GetString(LLMModelNameKey, provider == "openai" ? "gpt-3.5-turbo" : "openai/gpt-oss-20b") ?? "gpt-3.5-turbo";
-        var isEnabled = _preferences.GetBoolean(LLMEnabledKey, true);
+        var modelName = _preferences.GetString(LLMModelNameKey, "") ?? "";
+        var isEnabled = _preferences.GetBoolean(LLMEnabledKey, false);
 
         return new LLMProviderSettings(provider, endpoint, modelName, string.IsNullOrWhiteSpace(apiKey) ? null : apiKey, isEnabled);
     }
@@ -123,7 +123,7 @@ public class SettingsService
     {
         try
         {
-            var json = JsonSerializer.Serialize(collection);
+            var json = JsonSerializer.Serialize(collection, RobinJsonContext.Default.LLMProviderCollection);
             var editor = _preferences.Edit();
             if (editor != null)
             {
@@ -148,7 +148,7 @@ public class SettingsService
             var json = _preferences.GetString(LLMProviderCollectionKey, null);
             if (!string.IsNullOrEmpty(json))
             {
-                var collection = JsonSerializer.Deserialize<LLMProviderCollection>(json);
+                var collection = JsonSerializer.Deserialize(json, RobinJsonContext.Default.LLMProviderCollection);
                 if (collection != null)
                 {
                     Log.Info("SettingsService", "LLMプロバイダーコレクションを読み込みました");
@@ -227,10 +227,7 @@ public class SettingsService
             }
 
             var jsonContent = await File.ReadAllTextAsync(filePath);
-            var config = JsonSerializer.Deserialize<Configuration>(jsonContent, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = false
-            });
+            var config = JsonSerializer.Deserialize(jsonContent, RobinJsonContext.Default.Configuration);
 
             Log.Info("SettingsService", $"設定ファイルを読み込みました: {filePath}");
             return config;
@@ -372,11 +369,11 @@ public class SettingsService
     /// </summary>
     public STTProviderSettings LoadSTTProviderSettings()
     {
-        var provider = _preferences.GetString(STTProviderKey, "sherpa-onnx") ?? "sherpa-onnx";
+        var provider = _preferences.GetString(STTProviderKey, "android-default") ?? "android-default";
         var endpoint = _preferences.GetString(STTEndpointKey, "") ?? "";
         var apiKey = _preferences.GetString(STTApiKeyKey, "") ?? "";
         var language = _preferences.GetString(STTLanguageKey, "auto") ?? "auto";
-        var modelName = _preferences.GetString(STTModelNameKey, "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09") ?? "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09";
+        var modelName = _preferences.GetString(STTModelNameKey, "android-default") ?? "android-default";
         var isEnabled = _preferences.GetBoolean(STTEnabledKey, true);
 
         return new STTProviderSettings(

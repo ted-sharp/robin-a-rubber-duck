@@ -43,7 +43,7 @@ public class AzureSttService : IDisposable
             }
 
             var configJson = await File.ReadAllTextAsync(configFilePath);
-            _config = JsonSerializer.Deserialize<AzureSttConfig>(configJson);
+            _config = JsonSerializer.Deserialize(configJson, Robin.Models.RobinJsonContext.Default.AzureSttConfig);
 
             if (_config == null)
             {

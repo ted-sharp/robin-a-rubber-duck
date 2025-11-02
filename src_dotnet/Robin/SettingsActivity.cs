@@ -302,8 +302,16 @@ public class SettingsActivity : AppCompatActivity
 
                 Log.Info("SettingsActivity", $"接続テスト開始 - URL: {testUrl}");
 
-                var request = new { model = modelName, messages = new[] { new { role = "user", content = "test" } }, temperature = 0.7 };
-                var json = System.Text.Json.JsonSerializer.Serialize(request);
+                var request = new Robin.Models.OpenAIRequest
+                {
+                    Model = modelName,
+                    Messages = new System.Collections.Generic.List<Robin.Models.ApiMessage>
+                    {
+                        new Robin.Models.ApiMessage { Role = "user", Content = "test" }
+                    },
+                    Temperature = 0.7
+                };
+                var json = System.Text.Json.JsonSerializer.Serialize(request, Robin.Models.RobinJsonContext.Default.OpenAIRequest);
                 var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
 
                 var response = await client.PostAsync(testUrl, content);

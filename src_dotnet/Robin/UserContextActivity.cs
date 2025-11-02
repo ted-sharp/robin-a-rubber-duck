@@ -52,7 +52,7 @@ public class UserContextActivity : AppCompatActivity
 
             using var reader = new StreamReader(stream);
             var json = reader.ReadToEnd();
-            _userContextConfig = JsonSerializer.Deserialize<UserContextConfig>(json);
+            _userContextConfig = JsonSerializer.Deserialize(json, Robin.Models.RobinJsonContext.Default.UserContextConfig);
 
             if (_userContextConfig != null)
             {

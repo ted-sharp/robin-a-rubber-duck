@@ -140,7 +140,7 @@ public class OpenAIService
             var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
             Log.Debug("OpenAIService", $"レスポンス内容: {responseContent.Substring(0, Math.Min(200, responseContent.Length))}...");
 
-            var openAIResponse = JsonSerializer.Deserialize<OpenAIResponse>(responseContent);
+            var openAIResponse = JsonSerializer.Deserialize(responseContent, RobinJsonContext.Default.OpenAIResponse);
 
             if (openAIResponse?.Choices == null || openAIResponse.Choices.Count == 0)
             {
@@ -202,7 +202,7 @@ public class OpenAIService
             Temperature = 0.7
         };
 
-        var json = JsonSerializer.Serialize(request);
+        var json = JsonSerializer.Serialize(request, RobinJsonContext.Default.OpenAIRequest);
         return new StringContent(json, Encoding.UTF8, "application/json");
     }
 

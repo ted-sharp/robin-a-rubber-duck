@@ -221,7 +221,7 @@ public class ConversationService
     {
         try
         {
-            var json = JsonSerializer.Serialize(_messages);
+            var json = JsonSerializer.Serialize(_messages, RobinJsonContext.Default.ListMessage);
             var editor = _preferences?.Edit();
             if (editor != null)
             {
@@ -246,7 +246,7 @@ public class ConversationService
             var json = _preferences?.GetString(MessagesKey, null);
             if (!string.IsNullOrEmpty(json))
             {
-                var messages = JsonSerializer.Deserialize<List<Message>>(json);
+                var messages = JsonSerializer.Deserialize(json, RobinJsonContext.Default.ListMessage);
                 if (messages != null)
                 {
                     _messages.Clear();

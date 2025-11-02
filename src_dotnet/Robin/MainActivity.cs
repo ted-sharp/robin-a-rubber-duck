@@ -1,4 +1,5 @@
-﻿using Android.Content.PM;
+﻿using System.Collections.Generic;
+using Android.Content.PM;
 using Android.Views;
 using AndroidX.Activity.Result;
 using AndroidX.Activity.Result.Contract;
@@ -279,6 +280,20 @@ public class MainActivity : AppCompatActivity
     {
         try
         {
+            // 設定を確認して、android-defaultが選択されている場合は初期化をスキップ
+            var sttSettings = _settingsService?.LoadSTTProviderSettings();
+            if (sttSettings?.ModelName == "android-default")
+            {
+                // Android標準音声認識を使用（エラーメッセージなし）
+                RunOnUiThread(() =>
+                {
+                    _currentModelName = "Android Standard";
+                    UpdateAsrModelDisplay();
+                    Android.Util.Log.Info("MainActivity", "Android標準音声認識を使用します");
+                });
+                return;
+            }
+
             // UI更新は最小限に（初期化ステータスは最初だけ表示）
             RunOnUiThread(() =>
             {
@@ -318,6 +333,13 @@ public class MainActivity : AppCompatActivity
         // 設定から選択されているモデルを読み込む
         var sttSettings = _settingsService?.LoadSTTProviderSettings();
         var selectedModel = sttSettings?.ModelName;
+
+        // android-defaultが選択されている場合はSherpa初期化をスキップ
+        if (selectedModel == "android-default")
+        {
+            Android.Util.Log.Info("MainActivity", "Android標準音声認識が選択されています。Sherpa初期化をスキップします。");
+            return (false, null);
+        }
 
         // 初期化を試みるモデルのリスト（設定から選択されているモデルを最優先）
         var modelsToTry = new List<string>();
@@ -425,8 +447,9 @@ public class MainActivity : AppCompatActivity
         }
         else
         {
-            // モック版: APIキーなしで動作
-            _openAIService = new OpenAIService("mock-api-key");
+            // LLMが無効化されている場合はnullに設定
+            _openAIService = null;
+            Android.Util.Log.Info("MainActivity", "LLMが無効化されています");
         }
 
         // LLMモデル表示を更新
@@ -474,6 +497,10 @@ public class MainActivity : AppCompatActivity
             {
                 throw new InvalidOperationException($"未サポートのプロバイダー: {llmSettings.Provider}");
             }
+
+            // SemanticValidationServiceを新しいOpenAIServiceで再初期化
+            _semanticValidationService = new SemanticValidationService(_openAIService, _settingsService);
+            Android.Util.Log.Info("MainActivity", "SemanticValidationServiceを再初期化しました");
         }
         catch (Exception ex)
         {
@@ -482,6 +509,9 @@ public class MainActivity : AppCompatActivity
             // フォールバック: モック版
             _openAIService = new OpenAIService("mock-api-key");
             ShowToast($"LLM接続失敗: {ex.Message}。モック版を使用します。");
+
+            // SemanticValidationServiceをフォールバック版のOpenAIServiceで再初期化
+            _semanticValidationService = new SemanticValidationService(_openAIService, _settingsService);
         }
     }
 
@@ -586,32 +616,29 @@ public class MainActivity : AppCompatActivity
             "SenseVoice (多言語) - 238MB"
         };
 
-        // モデルの存在確認と表示名の更新
-        var modelDisplayNames = new string[baseDisplayNames.Length];
-        var modelAvailability = new bool[_availableModels.Length];
+        // 利用可能なモデルのみをフィルタリング
+        var availableModelsList = new List<string>();
+        var availableDisplayNamesList = new List<string>();
 
         for (int i = 0; i < _availableModels.Length; i++)
         {
-            bool isAvailable = IsModelAvailable(_availableModels[i]);
-            modelAvailability[i] = isAvailable;
-
-            if (isAvailable)
+            if (IsModelAvailable(_availableModels[i]))
             {
-                modelDisplayNames[i] = baseDisplayNames[i];
-            }
-            else
-            {
-                modelDisplayNames[i] = baseDisplayNames[i] + " (未ダウンロード)";
+                availableModelsList.Add(_availableModels[i]);
+                availableDisplayNamesList.Add(baseDisplayNames[i]);
             }
         }
+
+        var availableModels = availableModelsList.ToArray();
+        var availableDisplayNames = availableDisplayNamesList.ToArray();
 
         // 現在のモデルのインデックスを取得
         int checkedItem = -1;
         if (!string.IsNullOrEmpty(_currentModelName))
         {
-            for (int i = 0; i < _availableModels.Length; i++)
+            for (int i = 0; i < availableModels.Length; i++)
             {
-                if (_availableModels[i] == _currentModelName)
+                if (availableModels[i] == _currentModelName)
                 {
                     checkedItem = i;
                     break;
@@ -620,16 +647,9 @@ public class MainActivity : AppCompatActivity
         }
 
         AndroidX.AppCompat.App.AlertDialog? dialog = null;
-        builder.SetSingleChoiceItems(modelDisplayNames, checkedItem, (sender, e) =>
+        builder.SetSingleChoiceItems(availableDisplayNames, checkedItem, (sender, e) =>
         {
-            // モデルが利用可能かチェック
-            if (!modelAvailability[e.Which])
-            {
-                ShowToast("このモデルはダウンロードされていません");
-                return;
-            }
-
-            var selectedModel = _availableModels[e.Which];
+            var selectedModel = availableModels[e.Which];
             dialog?.Dismiss();
 
             // Androidデフォルト音声認識の場合
@@ -675,6 +695,7 @@ public class MainActivity : AppCompatActivity
         // LLMプロバイダーの選択肢
         var llmProviderNames = new string[]
         {
+            "None (無効化)",
             "OpenAI",
             "Azure OpenAI",
             "LM Studio 1",
@@ -685,6 +706,7 @@ public class MainActivity : AppCompatActivity
         // プロバイダー識別子の配列
         var llmProviderIds = new string[]
         {
+            "none",
             "openai",
             "azure-openai",
             "lm-studio-1",
@@ -714,19 +736,22 @@ public class MainActivity : AppCompatActivity
 
             switch (e.Which)
             {
-                case 0: // OpenAI
+                case 0: // None
+                    DisableLLM();
+                    break;
+                case 1: // OpenAI
                     ShowOpenAIConfigDialog();
                     break;
-                case 1: // Azure OpenAI
+                case 2: // Azure OpenAI
                     ShowAzureOpenAIConfigDialog();
                     break;
-                case 2: // LM Studio 1
+                case 3: // LM Studio 1
                     ShowLMStudioConfigDialog("lm-studio-1");
                     break;
-                case 3: // LM Studio 2
+                case 4: // LM Studio 2
                     ShowLMStudioConfigDialog("lm-studio-2");
                     break;
-                case 4: // Claude
+                case 5: // Claude
                     ShowClaudeConfigDialog();
                     break;
             }
@@ -800,7 +825,7 @@ public class MainActivity : AppCompatActivity
             {
                 // JSONファイルを読み込み
                 var jsonContent = File.ReadAllText(configFilePath);
-                var loadedSettings = System.Text.Json.JsonSerializer.Deserialize<LLMProviderSettings>(jsonContent);
+                var loadedSettings = System.Text.Json.JsonSerializer.Deserialize(jsonContent, Robin.Models.RobinJsonContext.Default.LLMProviderSettings);
 
                 if (loadedSettings == null)
                 {
@@ -887,7 +912,7 @@ public class MainActivity : AppCompatActivity
                 try
                 {
                     var jsonContent = File.ReadAllText(configPath);
-                    var config = System.Text.Json.JsonSerializer.Deserialize<LLMProviderSettings>(jsonContent);
+                    var config = System.Text.Json.JsonSerializer.Deserialize(jsonContent, Robin.Models.RobinJsonContext.Default.LLMProviderSettings);
                     if (config != null)
                     {
                         apiKeyInput.Text = config.ApiKey;
@@ -919,6 +944,7 @@ public class MainActivity : AppCompatActivity
             var settings = new LLMProviderSettings("openai", "https://api.openai.com/v1", model, apiKey, true);
             _settingsService?.SaveLLMProviderSettings(settings);
             InitializeLLMProvider(settings);
+            UpdateCurrentModelDisplay();
             ShowToast($"OpenAI設定を保存しました: {model}");
         });
 
@@ -975,7 +1001,7 @@ public class MainActivity : AppCompatActivity
                 try
                 {
                     var jsonContent = File.ReadAllText(configPath);
-                    var config = System.Text.Json.JsonSerializer.Deserialize<LLMProviderSettings>(jsonContent);
+                    var config = System.Text.Json.JsonSerializer.Deserialize(jsonContent, Robin.Models.RobinJsonContext.Default.LLMProviderSettings);
                     if (config != null)
                     {
                         endpointInput.Text = config.Endpoint;
@@ -1009,6 +1035,7 @@ public class MainActivity : AppCompatActivity
             var settings = new LLMProviderSettings("azure-openai", endpoint, deployment, apiKey, true);
             _settingsService?.SaveLLMProviderSettings(settings);
             InitializeLLMProvider(settings);
+            UpdateCurrentModelDisplay();
             ShowToast($"Azure OpenAI設定を保存しました: {deployment}");
         });
 
@@ -1065,7 +1092,7 @@ public class MainActivity : AppCompatActivity
                 try
                 {
                     var jsonContent = File.ReadAllText(configPath);
-                    var config = System.Text.Json.JsonSerializer.Deserialize<LLMProviderSettings>(jsonContent);
+                    var config = System.Text.Json.JsonSerializer.Deserialize(jsonContent, Robin.Models.RobinJsonContext.Default.LLMProviderSettings);
                     if (config != null)
                     {
                         endpointInput.Text = config.Endpoint;
@@ -1097,6 +1124,7 @@ public class MainActivity : AppCompatActivity
             var settings = new LLMProviderSettings(providerId, endpoint, model, null, true);
             _settingsService?.SaveLLMProviderSettings(settings);
             InitializeLLMProvider(settings);
+            UpdateCurrentModelDisplay();
             ShowToast($"{displayName}設定を保存しました: {endpoint}");
         });
 
@@ -1144,7 +1172,7 @@ public class MainActivity : AppCompatActivity
                 try
                 {
                     var jsonContent = File.ReadAllText(configPath);
-                    var config = System.Text.Json.JsonSerializer.Deserialize<LLMProviderSettings>(jsonContent);
+                    var config = System.Text.Json.JsonSerializer.Deserialize(jsonContent, Robin.Models.RobinJsonContext.Default.LLMProviderSettings);
                     if (config != null)
                     {
                         apiKeyInput.Text = config.ApiKey;
@@ -1176,11 +1204,27 @@ public class MainActivity : AppCompatActivity
             var settings = new LLMProviderSettings("claude", "https://api.anthropic.com/v1", model, apiKey, true);
             _settingsService?.SaveLLMProviderSettings(settings);
             InitializeLLMProvider(settings);
+            UpdateCurrentModelDisplay();
             ShowToast($"Claude設定を保存しました: {model}");
         });
 
         builder.SetNegativeButton("キャンセル", (sender, e) => { });
         builder.Create()?.Show();
+    }
+
+    private void DisableLLM()
+    {
+        var settings = new LLMProviderSettings("none", "", "", null, false);
+        _settingsService?.SaveLLMProviderSettings(settings);
+
+        // OpenAIServiceをnullに設定して無効化
+        _openAIService = null;
+
+        // SemanticValidationServiceもnullのOpenAIServiceで再初期化
+        _semanticValidationService = new SemanticValidationService(null, _settingsService);
+
+        UpdateCurrentModelDisplay();
+        ShowToast("LLMを無効化しました");
     }
 
     private void ShowLlmConfigFileSelectionDialog(Action<string> onFileSelected)
@@ -1283,7 +1327,7 @@ public class MainActivity : AppCompatActivity
                 try
                 {
                     var jsonContent = File.ReadAllText(configPath);
-                    var config = System.Text.Json.JsonSerializer.Deserialize<AzureSttConfig>(jsonContent);
+                    var config = System.Text.Json.JsonSerializer.Deserialize(jsonContent, Robin.Models.RobinJsonContext.Default.AzureSttConfig);
                     if (config != null)
                     {
                         subscriptionKeyInput.Text = config.SubscriptionKey;
@@ -1349,7 +1393,7 @@ public class MainActivity : AppCompatActivity
                 };
 
                 var tempPath = Path.Combine(CacheDir?.AbsolutePath ?? "", "azure_stt_temp.json");
-                var jsonContent = System.Text.Json.JsonSerializer.Serialize(config);
+                var jsonContent = System.Text.Json.JsonSerializer.Serialize(config, Robin.Models.RobinJsonContext.Default.AzureSttConfig);
                 await File.WriteAllTextAsync(tempPath, jsonContent);
 
                 var success = await _azureSttService.InitializeAsync(tempPath);
@@ -1443,7 +1487,7 @@ public class MainActivity : AppCompatActivity
                 try
                 {
                     var jsonContent = File.ReadAllText(configPath);
-                    var config = System.Text.Json.JsonSerializer.Deserialize<FasterWhisperSTTSettings>(jsonContent);
+                    var config = System.Text.Json.JsonSerializer.Deserialize(jsonContent, Robin.Models.RobinJsonContext.Default.FasterWhisperSTTSettings);
                     if (config != null && !string.IsNullOrEmpty(config.Endpoint))
                     {
                         serverUrlInput.Text = config.Endpoint;

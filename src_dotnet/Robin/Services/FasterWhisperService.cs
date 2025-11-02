@@ -235,7 +235,7 @@ public class FasterWhisperService : IDisposable
             response.EnsureSuccessStatusCode();
 
             var responseBody = await response.Content.ReadAsStringAsync();
-            var result = JsonSerializer.Deserialize<FasterWhisperResponse>(responseBody);
+            var result = JsonSerializer.Deserialize(responseBody, Robin.Models.RobinJsonContext.Default.FasterWhisperResponse);
 
             if (result?.Text != null && !string.IsNullOrWhiteSpace(result.Text))
             {
@@ -334,7 +334,7 @@ public class FasterWhisperService : IDisposable
     /// <summary>
     /// Faster Whisper APIレスポンス
     /// </summary>
-    private class FasterWhisperResponse
+    public class FasterWhisperResponse
     {
         public string? Text { get; set; }
     }

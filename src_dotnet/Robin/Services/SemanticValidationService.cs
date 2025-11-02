@@ -162,13 +162,7 @@ public class SemanticValidationService
             // レスポンスからJSONを抽出（```json```タグがあるかもしれない）
             var jsonText = ExtractJsonFromResponse(response);
 
-            var options = new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-            };
-
-            var parsed = JsonSerializer.Deserialize<SemanticValidationResponse>(jsonText, options);
+            var parsed = JsonSerializer.Deserialize(jsonText, RobinJsonContext.Default.SemanticValidationResponse);
 
             if (parsed == null)
             {
@@ -233,7 +227,7 @@ public class SemanticValidationService
     /// <summary>
     /// LLM応答の内部パース用クラス
     /// </summary>
-    private class SemanticValidationResponse
+    public class SemanticValidationResponse
     {
         [JsonPropertyName("isSemanticValid")]
         public bool IsSemanticValid { get; set; }
