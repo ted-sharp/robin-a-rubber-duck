@@ -11,6 +11,11 @@ public sealed class MessageAdapter : RecyclerView.Adapter
     private readonly HashSet<int> _selectedMessagesForDeletion = new();
     private const int ViewTypeUser = 1;
     private const int ViewTypeAssistant = 2;
+    /// <summary>
+    /// 選択状態が変更されたときに発火するイベント
+    /// </summary>
+    public event EventHandler? SelectionChanged;
+
 
     public MessageAdapter(List<Message> messages)
     {
@@ -123,6 +128,7 @@ public sealed class MessageAdapter : RecyclerView.Adapter
             _selectedMessagesForDeletion.Add(position);
         }
         NotifyItemChanged(position);
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -144,6 +150,79 @@ public sealed class MessageAdapter : RecyclerView.Adapter
                 _selectedMessagesForDeletion.Add(idx - 1);
             }
         }
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 選択中のメッセージがあるかどうか
+    /// </summary>
+    public bool HasSelectedMessages => _selectedMessagesForDeletion.Count > 0;
+
+    /// <summary>
+    /// 選択中のメッセージを取得（インデックス順）
+    /// </summary>
+    public List<Message> GetSelectedMessages()
+    {
+        return _selectedMessagesForDeletion
+            .OrderBy(idx => idx)
+            .Where(idx => idx >= 0 && idx < _messages.Count)
+            .Select(idx => _messages[idx])
+            .ToList();
+    }
+
+    /// <summary>
+    /// 選択中のメッセージをすべて削除
+    /// </summary>
+    public void DeleteSelectedMessages()
+    {
+        // 降順でソートして、インデックスがずれないように後ろから削除
+        var selectedIndices = _selectedMessagesForDeletion.OrderByDescending(idx => idx).ToList();
+
+        foreach (var idx in selectedIndices)
+        {
+            if (idx >= 0 && idx < _messages.Count)
+            {
+                _messages.RemoveAt(idx);
+                NotifyItemRemoved(idx);
+            }
+        }
+
+        _selectedMessagesForDeletion.Clear();
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 選択状態をクリア
+    /// </summary>
+    public void ClearSelection()
+    {
+        var selectedIndices = _selectedMessagesForDeletion.ToList();
+        _selectedMessagesForDeletion.Clear();
+
+        foreach (var idx in selectedIndices)
+        {
+            NotifyItemChanged(idx);
+        }
+        SelectionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 選択中のメッセージのインデックスを取得
+    /// </summary>
+    public List<int> GetSelectedIndices()
+    {
+        return _selectedMessagesForDeletion.OrderBy(idx => idx).ToList();
+    }
+
+    /// <summary>
+    /// ConversationServiceからメッセージリストを再同期
+    /// </summary>
+    public void SyncWithConversationService(List<Message> messages)
+    {
+        _selectedMessagesForDeletion.Clear();
+        _messages.Clear();
+        _messages.AddRange(messages);
+        NotifyDataSetChanged();
     }
 
     private sealed class UserMessageViewHolder : RecyclerView.ViewHolder
@@ -205,6 +284,9 @@ public sealed class MessageAdapter : RecyclerView.Adapter
             // 削除ボタンの表示状態を設定
             _deleteButton.Visibility = isVisible ? ViewStates.Visible : ViewStates.Gone;
 
+            // 選択状態を設定（selector が機能するように）
+            _deleteButton.Selected = adapter._selectedMessagesForDeletion.Contains(position);
+
             // 前回のハンドラを削除
             if (_messageBubbleClickHandler != null)
             {
@@ -222,10 +304,10 @@ public sealed class MessageAdapter : RecyclerView.Adapter
             };
             _messageBubble.Click += _messageBubbleClickHandler;
 
-            // 削除ボタンのクリックハンドラを設定
+            // 削除ボタンのクリックハンドラを設定（選択状態をトグル）
             _deleteButtonClickHandler = (sender, e) =>
             {
-                adapter.DeleteMessage(position);
+                adapter.ToggleDeleteButton(position);
             };
             _deleteButton.Click += _deleteButtonClickHandler;
         }
@@ -269,6 +351,9 @@ public sealed class MessageAdapter : RecyclerView.Adapter
             // 削除ボタンの表示状態を設定
             _deleteButton.Visibility = isVisible ? ViewStates.Visible : ViewStates.Gone;
 
+            // 選択状態を設定（selector が機能するように）
+            _deleteButton.Selected = adapter._selectedMessagesForDeletion.Contains(position);
+
             // 前回のハンドラを削除
             if (_messageBubbleClickHandler != null)
             {
@@ -286,10 +371,10 @@ public sealed class MessageAdapter : RecyclerView.Adapter
             };
             _messageBubble.Click += _messageBubbleClickHandler;
 
-            // 削除ボタンのクリックハンドラを設定
+            // 削除ボタンのクリックハンドラを設定（選択状態をトグル）
             _deleteButtonClickHandler = (sender, e) =>
             {
-                adapter.DeleteMessage(position);
+                adapter.ToggleDeleteButton(position);
             };
             _deleteButton.Click += _deleteButtonClickHandler;
         }

@@ -200,6 +200,33 @@
             android:visibility="gone"
             android:text="@string/listening" />
 
+        <!-- 削除ボタン (FloatingActionButton) - 左下 -->
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/delete_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_margin="16dp"
+            android:contentDescription="削除"
+            android:src="@android:drawable/ic_menu_delete"
+            app:tint="@android:color/white"
+            app:backgroundTint="@color/delete_button_color"
+            android:enabled="false" />
+
+        <!-- 編集ボタン (FloatingActionButton) - 左下（削除の右） -->
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/edit_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="88dp"
+            android:layout_marginBottom="16dp"
+            android:contentDescription="編集"
+            android:src="@android:drawable/ic_menu_edit"
+            app:tint="@android:color/white"
+            app:backgroundTint="@color/edit_button_color"
+            android:enabled="false" />
+
         <!-- 送信ボタン (FloatingActionButton) - セッター下部中央 -->
         <com.google.android.material.floatingactionbutton.FloatingActionButton
             android:id="@+id/send_button"

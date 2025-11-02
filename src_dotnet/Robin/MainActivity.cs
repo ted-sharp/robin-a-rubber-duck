@@ -32,6 +32,8 @@ public class MainActivity : AppCompatActivity
     private RecyclerView? _recyclerView;
     private FloatingActionButton? _micButton;
     private FloatingActionButton? _sendButton;
+    private FloatingActionButton? _deleteButton;
+    private FloatingActionButton? _editButton;
     private TextView? _statusText;
     private TextView? _welcomeMessageText;
     private View? _swipeHint;
@@ -97,6 +99,8 @@ public class MainActivity : AppCompatActivity
         SetupDrawerNavigation();
         SetupMicButton();  // ← このタイミングで登録（Sherpaの初期化と並行実行）
         SetupSendButton();
+        SetupDeleteButton();
+        SetupEditButton();
         SetupBackPressHandler();
         CheckPermissions();
 
@@ -155,6 +159,8 @@ public class MainActivity : AppCompatActivity
         _recyclerView = FindViewById<RecyclerView>(Resource.Id.chat_recycler_view);
         _micButton = FindViewById<FloatingActionButton>(Resource.Id.mic_button);
         _sendButton = FindViewById<FloatingActionButton>(Resource.Id.send_button);
+        _deleteButton = FindViewById<FloatingActionButton>(Resource.Id.delete_button);
+        _editButton = FindViewById<FloatingActionButton>(Resource.Id.edit_button);
         _statusText = FindViewById<TextView>(Resource.Id.status_text);
         _welcomeMessageText = FindViewById<TextView>(Resource.Id.welcome_message_text);
         _swipeHint = FindViewById(Resource.Id.swipe_hint);
@@ -1733,6 +1739,7 @@ public class MainActivity : AppCompatActivity
         _messageAdapter = new MessageAdapter(_conversationService.GetMessages());
         _recyclerView.SetAdapter(_messageAdapter);
         _recyclerView.SetLayoutManager(new LinearLayoutManager(this));
+        _messageAdapter.SelectionChanged += OnMessageSelectionChanged;
 
         // 初期表示時に最後のメッセージまでスクロール
         _recyclerView.Post(() => ScrollToBottom());
@@ -2977,6 +2984,240 @@ public class MainActivity : AppCompatActivity
                 Toast.MakeText(_activity, $"エラー: {ex.Message}", ToastLength.Short)?.Show();
                 Android.Util.Log.Error("MainActivity", $"ファイル読み込みエラー: {ex.Message}, {ex.StackTrace}");
             }
+        }
+    }
+
+
+    private void SetupDeleteButton()
+    {
+        if (_deleteButton == null)
+            return;
+
+        _deleteButton.Click += (sender, e) =>
+        {
+            if (_messageAdapter == null || !_messageAdapter.HasSelectedMessages || _conversationService == null)
+                return;
+
+            // 確認ダイアログを表示
+            var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+            builder.SetTitle("メッセージを削除");
+            builder.SetMessage("選択したメッセージを削除しますか?");
+            builder.SetPositiveButton("削除", (dialogSender, dialogE) =>
+            {
+                // 選択されたインデックスを取得（降順で削除）
+                var selectedIndices = _messageAdapter.GetSelectedIndices()
+                    .OrderByDescending(idx => idx)
+                    .ToList();
+
+                // ConversationServiceから削除（降順で削除してインデックスがずれないようにする）
+                foreach (var idx in selectedIndices)
+                {
+                    _conversationService.DeleteMessage(idx);
+                }
+
+                // MessageAdapterを完全に再同期
+                _messageAdapter.SyncWithConversationService(_conversationService.GetMessages());
+            });
+            builder.SetNegativeButton("キャンセル", (dialogSender, dialogE) => { });
+            builder.Show();
+        };
+    }
+    private void SetupEditButton()
+    {
+        if (_editButton == null)
+            return;
+
+        _editButton.Click += (sender, e) =>
+        {
+            if (_messageAdapter == null || !_messageAdapter.HasSelectedMessages)
+                return;
+
+            // 選択中のメッセージを取得
+            var selectedMessages = _messageAdapter.GetSelectedMessages();
+            var selectedIndices = _messageAdapter.GetSelectedIndices().ToList();
+            
+            // メッセージを連結（ユーザーメッセージのみ）
+            var concatenatedText = string.Join("\n", 
+                selectedMessages
+                    .Where(m => m.IsUser)
+                    .Select(m => m.GetDisplayContent()));
+
+            if (string.IsNullOrWhiteSpace(concatenatedText))
+            {
+                Toast.MakeText(this, "ユーザーメッセージが選択されていません", ToastLength.Short)?.Show();
+                return;
+            }
+
+            // 編集ダイアログを表示
+            ShowEditMessageDialog(concatenatedText, selectedIndices);
+        };
+    }
+
+    private void ShowEditMessageDialog(string initialText, List<int> selectedIndices)
+    {
+        var builder = new AndroidX.AppCompat.App.AlertDialog.Builder(this);
+        var inflater = LayoutInflater.From(this);
+        var dialogView = inflater?.Inflate(Resource.Layout.dialog_edit_message, null);
+        
+        if (dialogView == null || _conversationService == null || _messageAdapter == null)
+            return;
+
+        var editText = dialogView.FindViewById<EditText>(Resource.Id.edit_message_text);
+        if (editText != null)
+        {
+            editText.Text = initialText;
+        }
+
+        builder.SetView(dialogView);
+        var dialog = builder.Create();
+
+        var cancelButton = dialogView.FindViewById<Button>(Resource.Id.cancel_button);
+        var confirmButton = dialogView.FindViewById<Button>(Resource.Id.confirm_button);
+
+        cancelButton?.SetOnClickListener(new ClickListener(() =>
+        {
+            dialog?.Dismiss();
+        }));
+
+        confirmButton?.SetOnClickListener(new ClickListener(() =>
+        {
+            var editedText = editText?.Text?.Trim();
+            if (!string.IsNullOrWhiteSpace(editedText))
+            {
+                // 選択されていたメッセージを削除（降順で）
+                var sortedIndices = selectedIndices.OrderByDescending(idx => idx).ToList();
+                foreach (var idx in sortedIndices)
+                {
+                    _conversationService.DeleteMessage(idx);
+                }
+
+                // 編集されたテキストを新しいメッセージとして追加
+                _conversationService.AddUserMessage(editedText);
+
+                // MessageAdapterを完全に再同期
+                _messageAdapter.SyncWithConversationService(_conversationService.GetMessages());
+
+                // 最下部にスクロール
+                RunOnUiThread(() =>
+                {
+                    ScrollToBottom();
+                });
+                
+                // 意味解析を実行
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        var lastIndex = _conversationService.GetLastUserMessageIndex();
+                        if (lastIndex >= 0)
+                        {
+                            await PerformSemanticValidation(editedText, lastIndex);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Android.Util.Log.Error("MainActivity", $"意味解析エラー: {ex.Message}");
+                    }
+                });
+            }
+            dialog?.Dismiss();
+        }));
+
+        dialog?.Show();
+    }
+
+    /// <summary>
+    /// メッセージ選択状態が変更されたときのイベントハンドラ
+    /// </summary>
+    private void OnMessageSelectionChanged(object? sender, EventArgs e)
+    {
+        RunOnUiThread(() =>
+        {
+            if (_messageAdapter == null || _deleteButton == null || _editButton == null)
+                return;
+
+            var hasSelection = _messageAdapter.HasSelectedMessages;
+            _deleteButton.Enabled = hasSelection;
+            _editButton.Enabled = hasSelection;
+        });
+    }
+
+    /// <summary>
+    /// 指定されたテキストとメッセージインデックスに対して意味解析を実行
+    /// </summary>
+    private async Task PerformSemanticValidation(string text, int messageIndex)
+    {
+        if (_semanticValidationService == null || _conversationService == null || _messageAdapter == null)
+            return;
+
+        try
+        {
+            _semanticValidationCancellation?.Cancel();
+            _semanticValidationCancellation?.Dispose();
+            _semanticValidationCancellation = new CancellationTokenSource();
+
+            var validationResult = await _semanticValidationService.ValidateAsync(text, _semanticValidationCancellation.Token);
+
+            if (validationResult.IsSemanticValid)
+            {
+                _conversationService.UpdateMessageWithSemanticValidation(messageIndex, validationResult);
+
+                RunOnUiThread(() =>
+                {
+                    // インデックスが有効か確認してから更新
+                    var messages = _conversationService.GetMessages();
+                    if (messageIndex >= 0 && messageIndex < messages.Count)
+                    {
+                        _messageAdapter.UpdateMessage(messageIndex, messages[messageIndex]);
+                        _sendButton!.Enabled = true;
+                    }
+                    else
+                    {
+                        // インデックスがずれている場合は全体を再同期
+                        _messageAdapter.SyncWithConversationService(messages);
+                    }
+                });
+            }
+            else
+            {
+                _conversationService.UpdateMessageWithSemanticValidation(messageIndex, validationResult);
+
+                RunOnUiThread(() =>
+                {
+                    // インデックスが有効か確認してから更新
+                    var messages = _conversationService.GetMessages();
+                    if (messageIndex >= 0 && messageIndex < messages.Count)
+                    {
+                        _messageAdapter.UpdateMessage(messageIndex, messages[messageIndex]);
+                    }
+                    else
+                    {
+                        // インデックスがずれている場合は全体を再同期
+                        _messageAdapter.SyncWithConversationService(messages);
+                    }
+                    Toast.MakeText(this, "意味が通じません。編集して再送信してください。", ToastLength.Short)?.Show();
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error("MainActivity", $"意味解析エラー: {ex.Message}");
+        }
+    }
+
+    // ClickListenerヘルパークラス
+    private class ClickListener : Java.Lang.Object, View.IOnClickListener
+    {
+        private readonly Action _action;
+
+        public ClickListener(Action action)
+        {
+            _action = action;
+        }
+
+        public void OnClick(View? v)
+        {
+            _action?.Invoke();
         }
     }
 }

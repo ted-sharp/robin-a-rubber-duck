@@ -26,14 +26,14 @@
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
-            <!-- 削除ボタン（初期非表示） -->
+            <!-- 選択チェックマーク（初期非表示） -->
             <ImageButton
                 android:id="@+id/delete_button"
                 android:layout_width="32dp"
                 android:layout_height="32dp"
                 android:layout_marginEnd="4dp"
-                android:contentDescription="Delete message"
-                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                android:contentDescription="Select message"
+                android:src="@drawable/ic_select_circle"
                 android:scaleType="centerInside"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:visibility="gone" />

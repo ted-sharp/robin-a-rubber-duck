@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 選択時: 塗りつぶされた円 -->
+    <item android:state_selected="true">
+        <shape android:shape="oval">
+            <solid android:color="#2196F3"/>
+            <size android:width="24dp" android:height="24dp"/>
+        </shape>
+    </item>
+    <!-- 未選択時: 枠だけの円 -->
+    <item>
+        <shape android:shape="oval">
+            <stroke android:width="2dp" android:color="#9E9E9E"/>
+            <size android:width="24dp" android:height="24dp"/>
+        </shape>
+    </item>
+</selector>
