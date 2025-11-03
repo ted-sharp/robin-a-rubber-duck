@@ -15,12 +15,26 @@ Android voice chat application with offline speech recognition capabilities. Dis
   - **Local**: LM Studio (self-hosted LLM on local network)
   - Multiple provider profiles (LM Studio 1/2)
   - Runtime provider switching
+  - Customizable system prompts (Robin rubber ducking character)
+
+- 📝 **Message Management**
+  - Multi-select messages for batch operations
+  - Delete individual or multiple messages
+  - Edit message content
+  - Semantic validation/analysis of multiple messages
+  - Message processing state indicators
+
+- 👤 **User Context**
+  - Customizable user information
+  - Persistent context across conversations
+  - Editable via drawer menu settings
 
 - ⚙️ **Flexible Configuration**
   - JSON file import for API credentials
   - Settings persistence via SharedPreferences
   - Sample configurations in `config-samples/`
   - Drawer-based settings UI
+  - System prompt customization (conversation, semantic validation)
 
 - 🌐 **Multi-Language Support**
   - Japanese (optimized)
@@ -32,6 +46,8 @@ Android voice chat application with offline speech recognition capabilities. Dis
   - RecyclerView-based chat interface
   - Material Design components
   - Real-time provider status display
+  - Message bubbles with character avatars
+  - Send button for manual message submission
 
 ## Project Structure
 
@@ -63,11 +79,14 @@ Main voice chat application for Android devices.
 - Sherpa-ONNX 1.12.15 for offline speech recognition
 
 **Key Components:**
-- `MainActivity.cs` - Main entry point, UI management
+- `MainActivity.cs` - Main entry point, UI management, message operations
 - `Services/VoiceInputService.cs` - Android standard speech recognition
 - `Services/SherpaRealtimeService.cs` - Sherpa-ONNX offline recognition
-- `Services/OpenAIService.cs` - OpenAI API integration
-- `Services/ConversationService.cs` - Message history management
+- `Services/OpenAIService.cs` - Multi-provider LLM API integration
+- `Services/ConversationService.cs` - Message history and context management
+- `Resources/raw/conversation_prompt.txt` - Robin rubber ducking character prompt
+- `Resources/raw/semantic_validation_prompt.txt` - Semantic analysis prompt
+- `Resources/raw/user_context.txt` - User context information
 
 **Build:**
 ```bash
@@ -316,13 +335,30 @@ adb logcat | grep Robin
 
 ## Documentation
 
+### Core Documentation
 - **Architecture**: `claudedocs/architecture-design.md`
+- **Implementation Status**: `claudedocs/implementation-status.md`
+- **API Configuration**: `config-samples/README.md`
+
+### Speech Recognition
 - **Sherpa-ONNX Integration**: `claudedocs/sherpa-onnx-integration.md`
 - **Setup Guide**: `claudedocs/sherpa-onnx-setup.md`
 - **Model Preparation**: `claudedocs/pc-model-preparation-guide.md`
-- **Implementation Status**: `claudedocs/implementation-status.md`
 - **Asset Packaging**: `claudedocs/dotnet-android-assets-guide.md`
-- **API Configuration**: `config-samples/README.md`
+- **STT Integration**: `claudedocs/stt-integration-guide.md`
+
+### AI Integration
+- **OpenAI Integration**: `claudedocs/openai-integration.md`
+- **LM Studio Integration**: `claudedocs/lm-studio-integration.md`
+- **System Prompts Guide**: `claudedocs/system-prompts-guide.md`
+- **System Prompts Quick Reference**: `claudedocs/SYSTEM-PROMPTS-QUICK-REFERENCE.md`
+
+### Features
+- **Message Management**: Message deletion, editing, and semantic analysis
+- **User Context**: Customizable user information for conversations
+- **Configuration Import**: `claudedocs/configuration-import-guide.md`
+- **Settings Export**: `claudedocs/settings-export-guide.md`
+- **Encrypted Settings**: `claudedocs/encrypted-settings-guide.md`
 
 ## Key Technologies
 
@@ -342,22 +378,34 @@ adb logcat | grep Robin
 
 ## Architecture Overview
 
-### Dual Recognition Strategy
+### Core Workflow
 
 ```
-User taps mic
+User Input
     ↓
 ┌───────────────┐
 │  MainActivity │
 └───────┬───────┘
-        ├─→ VoiceInputService (Android Standard) ─→ Online recognition
-        └─→ SherpaRealtimeService (Sherpa-ONNX) ─→ Offline recognition
+        │
+        ├─→ Voice Input ─→ VoiceInputService/SherpaRealtimeService
+        │                      ↓
+        │              RecognitionResult event
+        │                      ↓
+        │              ConversationService.AddUserMessage()
+        │
+        ├─→ Manual Send ─→ Send button
+        │                      ↓
+        │              ConversationService.AddUserMessage()
+        │
+        └─→ Message Management
                 ↓
-        RecognitionResult event
-                ↓
-        ConversationService.AddUserMessage()
+        ┌──────────────────────────┐
+        │  Select/Delete/Edit      │
+        │  Semantic Analysis       │
+        └──────────────────────────┘
                 ↓
         OpenAIService.SendMessageAsync()
+        (with user_context.txt + conversation_prompt.txt)
                 ↓
         ConversationService.AddAIMessage()
                 ↓
@@ -443,16 +491,27 @@ Robin app reads models
 - Validate API key
 - Check network connectivity
 
+## Recent Enhancements
+
+- ✅ **Message Management**: Multi-select, delete, and edit messages
+- ✅ **Semantic Analysis**: Analyze multiple messages together
+- ✅ **User Context**: Customizable user information
+- ✅ **System Prompts**: Robin rubber ducking character with customizable prompts
+- ✅ **Send Button**: Manual message submission control
+- ✅ **Message UI**: Character avatars and improved message bubbles
+- ✅ **Settings Export/Import**: Configuration backup and transfer
+- ✅ **Encrypted Settings**: Secure storage for API keys
+
 ## Future Enhancements
 
 - [ ] Runtime model download UI (via Robin.Core)
 - [ ] True streaming recognition (OnlineRecognizer instead of chunks)
 - [ ] Voice Activity Detection (VAD) integration
-- [ ] Encrypted SharedPreferences for API keys
 - [ ] Text-to-speech (TTS) for AI responses
 - [ ] Offline mode with queued API calls
-- [ ] Conversation export/import
-- [ ] Custom system prompts UI
+- [ ] Conversation history search
+- [ ] Message threading and grouping
+- [ ] Custom theme support
 
 ## Contributing
 

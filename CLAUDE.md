@@ -49,34 +49,56 @@ adb devices
 
 # View logcat for debugging
 adb logcat | grep Robin
+
+# Filter by specific tags
+adb logcat | grep -E "Robin|OpenAIService|SherpaRealtimeService|SemanticValidationService"
 ```
+
+### Debug Mode
+
+**IMPORTANT**: The user has requested that `if DEBUG` conditional compilation directives should NOT be used as they make code harder to read. Instead:
+- Use logging with appropriate log levels (Info, Debug, Warn, Error)
+- Use feature flags or runtime configuration for debug behavior
+- Keep debug code visible and controlled by configuration, not compilation
 
 ### Project Structure
 ```
 robin-a-rubber-duck/
 ├── src_dotnet/Robin/
-│   ├── MainActivity.cs              # Main entry point, DrawerLayout management
+│   ├── MainActivity.cs                      # Main UI, multi-select, message operations
+│   ├── UserContextActivity.cs               # User context editor
+│   ├── ConversationPromptActivity.cs        # Conversation prompt editor
+│   ├── SemanticValidationPromptActivity.cs  # Validation prompt editor
+│   ├── SystemPromptsActivity.cs             # System prompts overview
 │   ├── Services/
-│   │   ├── VoiceInputService.cs    # Android standard SpeechRecognizer
-│   │   ├── SherpaRealtimeService.cs # Sherpa-ONNX offline recognition
-│   │   ├── AzureSttService.cs      # Azure Speech-to-Text API
-│   │   ├── FasterWhisperService.cs # Faster Whisper LAN server
-│   │   ├── OpenAIService.cs        # Multi-provider LLM API (OpenAI/Azure/Claude/LM Studio)
-│   │   ├── SettingsService.cs      # Settings persistence (SharedPreferences)
-│   │   └── ConversationService.cs  # Message history management
+│   │   ├── VoiceInputService.cs             # Android standard SpeechRecognizer
+│   │   ├── SherpaRealtimeService.cs         # Sherpa-ONNX offline recognition
+│   │   ├── AzureSttService.cs               # Azure Speech-to-Text API
+│   │   ├── FasterWhisperService.cs          # Faster Whisper LAN server
+│   │   ├── OpenAIService.cs                 # Multi-provider LLM API
+│   │   ├── SettingsService.cs               # SharedPreferences + encryption
+│   │   ├── ConversationService.cs           # Message history management
+│   │   ├── RecognizedInputBuffer.cs         # Speech chunk buffering
+│   │   └── SemanticValidationService.cs     # LLM validation/correction
+│   ├── Adapters/
+│   │   └── MessageAdapter.cs                # RecyclerView with multi-select
 │   ├── Models/
-│   │   ├── Message.cs              # Chat message model
-│   │   ├── LMStudioSettings.cs     # LLM provider settings (multi-provider)
-│   │   ├── STTProviderSettings.cs  # ASR provider settings
-│   │   └── AzureSttConfig.cs       # Azure STT configuration
+│   │   ├── Message.cs                       # Chat message model
+│   │   ├── LMStudioSettings.cs              # LLM provider settings
+│   │   ├── STTProviderSettings.cs           # ASR provider settings
+│   │   ├── SystemPrompts.cs                 # Prompt file loader
+│   │   └── AzureSttConfig.cs                # Azure STT configuration
 │   ├── libs/
-│   │   └── sherpa-onnx-1.12.15.aar # Sherpa-ONNX native library (37MB)
+│   │   └── sherpa-onnx-1.12.15.aar          # Sherpa-ONNX native library (37MB)
 │   ├── Transforms/
-│   │   └── Metadata.xml            # Java binding metadata fixes
+│   │   └── Metadata.xml                     # Java binding metadata fixes
 │   └── Resources/raw/
+│       ├── conversation_prompt.txt          # Robin character (editable)
+│       ├── semantic_validation_prompt.txt   # Validation prompt (editable)
+│       ├── user_context.txt                 # User profile (editable)
 │       └── sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09/
-│           ├── model.int8.onnx     # SenseVoice model (227MB)
-│           └── tokens.txt           # Token definitions
+│           ├── model.int8.onnx              # SenseVoice model (227MB)
+│           └── tokens.txt                   # Token definitions
 ├── config-samples/                  # External API configuration samples
 │   ├── llm-openai-sample.json      # OpenAI configuration
 │   ├── llm-azure-openai-sample.json # Azure OpenAI configuration
@@ -91,6 +113,41 @@ robin-a-rubber-duck/
     ├── sherpa-onnx-setup.md         # Setup instructions
     └── implementation-status.md     # Implementation progress tracking
 ```
+
+## Recent Feature Additions
+
+### Message Management System
+- **Multi-select**: Long-press messages to enter selection mode, tap to select/deselect multiple
+- **Delete**: Individual or batch deletion with confirmation dialog
+- **Edit**: Edit message content via dialog (user messages only)
+- **Semantic validation**: Batch analyze multiple messages for meaning and coherence
+- **Visual feedback**: Selection state shown with checkmarks and color changes
+
+### User Context System
+- **Persistent context**: `Resources/raw/user_context.txt` loaded on startup and prepended to all LLM requests
+- **Editable via UI**: Access through drawer menu → "ユーザーコンテキスト編集"
+- **Purpose**: Maintain user information (name, role, preferences) across sessions without repeating
+
+### System Prompts Architecture
+The app uses **file-based system prompts** loaded from `Resources/raw/`:
+- **conversation_prompt.txt**: Robin rubber ducking character (friendly, concise debugging assistant)
+- **semantic_validation_prompt.txt**: JSON-based validation and text correction prompt
+- **user_context.txt**: User profile information prepended to all conversations
+- **Editable via UI**: Each prompt has dedicated activity for editing
+- **Fallback**: Hard-coded defaults if files fail to load
+
+### Recognized Input Buffer System
+- **RecognizedInputBuffer**: Collects continuous speech recognition chunks
+- **Watchdog timer**: Auto-triggers processing after 2 seconds of silence
+- **Integration**: Pairs with SemanticValidationService for validation before LLM send
+- **Events**: BufferReady, BufferUpdated, BufferCleared for UI state management
+
+### Semantic Validation Service
+- **Purpose**: LLM-powered validation of speech recognition accuracy
+- **Flow**: Recognition → Buffer → Semantic validation → Correction → Conversation
+- **JSON response**: `{"isSemanticValid": bool, "correctedText": string, "feedback": string}`
+- **Cancellable**: User can cancel validation via UI button
+- **Prompt switching**: Temporarily uses semantic_validation_prompt.txt, then restores conversation_prompt.txt
 
 ## Architecture Overview
 
@@ -160,27 +217,54 @@ The app supports **multiple speech recognition engines** selectable via drawer m
 
 ### Data Flow
 
+**Voice Input with Semantic Validation Flow:**
 ```
 User taps mic button
   → MainActivity.OnMicButtonClick()
   → VoiceInputService.StartListening() OR SherpaRealtimeService.StartListening()
-  → Speech recognized
-  → RecognitionResult event fired
-  → ConversationService.AddUserMessage(text)
-  → OpenAIService.SendMessageAsync(conversationHistory)
+  → Speech recognized (partial results)
+  → RecognizedInputBuffer.AddRecognition(partialText)
+  → [Watchdog timer: 2 seconds after last input]
+  → BufferReady event fired
+  → SemanticValidationService.ValidateAsync(bufferedText)
+    → OpenAIService with semantic_validation_prompt.txt
+    → JSON response: {isSemanticValid, correctedText, feedback}
+  → If valid: Use correctedText, else: Use original or user decision
+  → ConversationService.AddUserMessage(finalText)
+  → OpenAIService.SendMessageAsync(conversationHistory + user_context.txt)
+    → Uses conversation_prompt.txt for Robin character
   → API response received
   → ConversationService.AddAIMessage(response)
   → MessageAdapter.NotifyItemInserted()
   → RecyclerView updated
 ```
 
+**Manual Send Flow:**
+```
+User types text → Taps send button → Direct to ConversationService → Same LLM flow
+```
+
+**Message Management Flow:**
+```
+Long-press message → Enter selection mode
+  → Tap messages to select/deselect (visual feedback: checkmarks)
+  → Delete button: Remove selected messages with confirmation
+  → Edit button: Show dialog to edit user message text
+  → Semantic validation button: Batch analyze selected messages
+```
+
 ### UI Components
 
 - **DrawerLayout**: Left navigation drawer with menu
-- **RecyclerView**: Chat message list (user/AI messages)
-- **FloatingActionButton**: Microphone button for voice input
-- **StatusText**: Shows recognition state ("聞き取り中...", etc.)
-- **SwipeHintView**: Custom hint overlay for drawer interaction
+- **RecyclerView**: Chat message list with multi-select support
+- **FloatingActionButtons**:
+  - Mic button: Voice input control
+  - Send button: Manual message submission
+  - Delete button: Remove selected messages (visible in selection mode)
+  - Edit button: Edit message content (visible in selection mode)
+- **StatusText**: Shows processing state ("聞き取り中...", "意味を確認中...", etc.)
+- **SwipeHintView**: Custom hint overlay, tappable to open drawer
+- **Message bubbles**: Character avatars (Robin/user), selection checkmarks, colored backgrounds
 
 ## Sherpa-ONNX Integration Details
 
@@ -451,15 +535,86 @@ private void OnEventName(object? sender, string data)
 }
 ```
 
-### Async/Await Pattern
+### Message Selection Mode Pattern
 
-Services use async initialization:
+The app uses a **selection mode state machine** for message management:
 ```csharp
+// Enter selection mode
+private bool _isSelectionMode = false;
+private HashSet<int> _selectedPositions = new();
+
+// On long-press
+_messageAdapter.OnItemLongClick += (position) => {
+    _isSelectionMode = true;
+    _selectedPositions.Add(position);
+    UpdateSelectionUI(); // Show delete/edit buttons, hide mic/send
+};
+
+// On item click in selection mode
+_messageAdapter.OnItemClick += (position) => {
+    if (_isSelectionMode) {
+        ToggleSelection(position);
+    }
+};
+
+// Exit selection mode
+private void ExitSelectionMode() {
+    _isSelectionMode = false;
+    _selectedPositions.Clear();
+    UpdateSelectionUI(); // Hide delete/edit buttons, show mic/send
+    _messageAdapter.NotifyDataSetChanged(); // Clear checkmarks
+}
+```
+
+### System Prompt Management Pattern
+
+System prompts are **loaded from files** with fallback to hard-coded defaults:
+```csharp
+// At app startup (MainActivity.OnCreate)
+SystemPrompts.LoadFromFiles(this);
+
+// Before LLM call (temporary prompt switching)
+var originalPrompt = _openAIService.GetSystemPrompt();
+_openAIService.SetSystemPrompt(SystemPrompts.PromptType.SemanticValidation);
+var result = await _openAIService.SendMessageAsync(...);
+_openAIService.SetSystemPrompt(originalPrompt); // Restore
+
+// User context is prepended in ConversationService
+var messagesWithContext = new List<Message> {
+    new Message { Role = MessageRole.System, Content = userContext }
+}.Concat(_messages).ToList();
+```
+
+### Async/Await Pattern with Cancellation
+
+Services use async initialization with cancellation support:
+```csharp
+// Service initialization
 Task.Run(async () =>
 {
     var result = await _service.InitializeAsync(params);
     RunOnUiThread(() => UpdateUI(result));
 });
+
+// Cancellable operations (e.g., semantic validation)
+private CancellationTokenSource? _semanticValidationCancellation;
+
+// Start operation
+_semanticValidationCancellation = new CancellationTokenSource();
+try {
+    var result = await _semanticValidationService.ValidateAsync(
+        text,
+        _semanticValidationCancellation.Token
+    );
+} catch (TaskCanceledException) {
+    // User cancelled operation
+}
+
+// Cancel button handler
+private void OnCancelButtonClick() {
+    _semanticValidationCancellation?.Cancel();
+    _semanticValidationCancellation = null;
+}
 ```
 
 ### Null Safety
