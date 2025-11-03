@@ -6,7 +6,7 @@ using Robin.Models;
 
 namespace Robin.Services;
 
-public class OpenAIService
+public class OpenAIService : IDisposable
 {
     private const string OpenAIBaseAddress = "https://api.openai.com/v1/";
 
@@ -15,6 +15,9 @@ public class OpenAIService
     private readonly string _baseAddress;
     private readonly string _provider; // "openai" or "lm-studio"
     private string _systemPrompt = SystemPrompts.GetSystemPrompt(SystemPrompts.PromptType.Conversation);
+
+    // リクエストのシリアライズ用セマフォ（意味解析と通常応答の順序制御）
+    private readonly SemaphoreSlim _requestSemaphore = new SemaphoreSlim(1, 1);
 
     /// <summary>
     /// OpenAI APIを使用して初期化
@@ -112,6 +115,8 @@ public class OpenAIService
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "JSON models are preserved")]
     public async Task<string> SendMessageAsync(List<Message> conversationHistory, CancellationToken cancellationToken = default)
     {
+        // セマフォで排他制御（意味解析と通常応答が同時に実行されないようにする）
+        await _requestSemaphore.WaitAsync(cancellationToken);
         try
         {
             Log.Info("OpenAIService", $"リクエスト開始 - Provider: {_provider}, URL: {_httpClient.BaseAddress}chat/completions, Model: {_model}, メッセージ数: {conversationHistory.Count}");
@@ -172,6 +177,11 @@ public class OpenAIService
             Log.Error("OpenAIService", $"予期しないエラー: {ex.GetType().Name} - {ex.Message}");
             Log.Error("OpenAIService", $"スタックトレース: {ex.StackTrace}");
             throw;
+        }
+        finally
+        {
+            // セマフォを必ず解放
+            _requestSemaphore.Release();
         }
     }
 
@@ -246,5 +256,14 @@ public class OpenAIService
 
         var random = new Random();
         return responses[random.Next(responses.Length)];
+    }
+
+    /// <summary>
+    /// リソースの解放
+    /// </summary>
+    public void Dispose()
+    {
+        _requestSemaphore?.Dispose();
+        _httpClient?.Dispose();
     }
 }

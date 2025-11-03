@@ -287,10 +287,36 @@ public class MainActivity : AppCompatActivity
                 // Android標準音声認識を使用（エラーメッセージなし）
                 RunOnUiThread(() =>
                 {
-                    _currentModelName = "Android Standard";
+                    _currentModelName = "android-default";
                     UpdateAsrModelDisplay();
                     Android.Util.Log.Info("MainActivity", "Android標準音声認識を使用します");
                 });
+                return;
+            }
+
+            // Azure STTが選択されている場合
+            if (sttSettings?.ModelName == "azure-stt" && !string.IsNullOrEmpty(sttSettings.ApiKey))
+            {
+                RunOnUiThread(() =>
+                {
+                    _currentModelName = "azure-stt";
+                    UpdateAsrModelDisplay();
+                    Android.Util.Log.Info("MainActivity", "Azure STTを使用します");
+                });
+                // Azure STT初期化（既存のAzureSttServiceを使用）
+                return;
+            }
+
+            // Faster Whisperが選択されている場合
+            if (sttSettings?.ModelName == "faster-whisper" && !string.IsNullOrEmpty(sttSettings.Endpoint))
+            {
+                RunOnUiThread(() =>
+                {
+                    _currentModelName = "faster-whisper";
+                    UpdateAsrModelDisplay();
+                    Android.Util.Log.Info("MainActivity", "Faster Whisperを使用します");
+                });
+                // Faster Whisper初期化（既存のFasterWhisperServiceを使用）
                 return;
             }
 
@@ -333,12 +359,20 @@ public class MainActivity : AppCompatActivity
         // 設定から選択されているモデルを読み込む
         var sttSettings = _settingsService?.LoadSTTProviderSettings();
         var selectedModel = sttSettings?.ModelName;
+        var selectedLanguage = sttSettings?.Language ?? "auto";
 
         // android-defaultが選択されている場合はSherpa初期化をスキップ
         if (selectedModel == "android-default")
         {
             Android.Util.Log.Info("MainActivity", "Android標準音声認識が選択されています。Sherpa初期化をスキップします。");
             return (false, null);
+        }
+
+        // 保存されていた言語を復元
+        if (selectedLanguage != "auto")
+        {
+            _selectedLanguage = selectedLanguage;
+            Android.Util.Log.Info("MainActivity", $"保存されていた言語を復元: {_selectedLanguage}");
         }
 
         // 初期化を試みるモデルのリスト（設定から選択されているモデルを最優先）
@@ -348,7 +382,7 @@ public class MainActivity : AppCompatActivity
         if (!string.IsNullOrWhiteSpace(selectedModel))
         {
             modelsToTry.Add(selectedModel);
-            Android.Util.Log.Info("MainActivity", $"設定から選択されているモデル: {selectedModel}");
+            Android.Util.Log.Info("MainActivity", $"設定から選択されているモデル: {selectedModel}, 言語: {_selectedLanguage}");
         }
 
         // フォールバック用の他のモデルを追加
@@ -383,10 +417,10 @@ public class MainActivity : AppCompatActivity
 
             try
             {
-                bool initialized = await _sherpaService!.InitializeAsync(modelName, isFilePath: false);
+                bool initialized = await _sherpaService!.InitializeAsync(modelName, isFilePath: false, language: _selectedLanguage);
                 if (initialized)
                 {
-                    Android.Util.Log.Info("MainActivity", $"Sherpa初期化成功: {modelName}");
+                    Android.Util.Log.Info("MainActivity", $"Sherpa初期化成功: {modelName}, 言語: {_selectedLanguage}");
                     return (true, modelName);
                 }
             }
@@ -1260,6 +1294,10 @@ public class MainActivity : AppCompatActivity
                     _statusText?.SetText("Androidデフォルト音声認識を使用", TextView.BufferType.Normal);
                     Android.Util.Log.Info("MainActivity", "Androidデフォルト音声認識に切り替え");
 
+                    // 設定を保存
+                    var sttSettings = new STTProviderSettings("android-default", null, null, "auto", "android-default", true);
+                    _settingsService?.SaveSTTProviderSettings(sttSettings);
+
                     Toast.MakeText(this, "Androidデフォルト音声認識に切り替えました", ToastLength.Short)?.Show();
                 });
             }
@@ -1724,6 +1762,10 @@ public class MainActivity : AppCompatActivity
                         _statusText!.Visibility = ViewStates.Gone;
                         ShowToast($"モデル読み込み完了: {modelName}");
                         Android.Util.Log.Info("MainActivity", $"モデル読み込み成功: {modelName}");
+
+                        // 設定を保存
+                        var sttSettings = new STTProviderSettings("sherpa-onnx", null, null, _selectedLanguage, modelName, true);
+                        _settingsService?.SaveSTTProviderSettings(sttSettings);
                     });
                 }
                 else
@@ -2692,6 +2734,7 @@ public class MainActivity : AppCompatActivity
         _voiceInputService?.Dispose();
         _inputBuffer?.Dispose();
         _fasterWhisperService?.Dispose();
+        _openAIService?.Dispose();
 
         if (_conversationService != null)
         {

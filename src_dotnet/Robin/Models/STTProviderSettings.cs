@@ -81,7 +81,7 @@ public class GoogleSTTSettings : STTProviderSettings
 public class AzureSTTSettings : STTProviderSettings
 {
     public AzureSTTSettings(string region, string apiKey, string language = "ja-JP", bool isEnabled = true)
-        : base("azure", $"https://{region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1", apiKey, language, null, isEnabled)
+        : base("azure", $"https://{region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1", apiKey, language, "azure-stt", isEnabled)
     {
     }
 }
@@ -103,7 +103,7 @@ public class SherpaOnnxSTTSettings : STTProviderSettings
 public class AndroidSTTSettings : STTProviderSettings
 {
     public AndroidSTTSettings(string language = "ja-JP", bool isEnabled = true)
-        : base("android-standard", null, null, language, null, isEnabled)
+        : base("android-standard", null, null, language, "android-default", isEnabled)
     {
     }
 }
@@ -114,7 +114,7 @@ public class AndroidSTTSettings : STTProviderSettings
 public class FasterWhisperSTTSettings : STTProviderSettings
 {
     public FasterWhisperSTTSettings(string serverUrl, string language = "ja", bool isEnabled = true)
-        : base("faster-whisper", serverUrl, null, language, null, isEnabled)
+        : base("faster-whisper", serverUrl, null, language, "faster-whisper", isEnabled)
     {
     }
 }
